@@ -63,7 +63,7 @@ A script that creates the database and collection via `node-appwrite` SDK. Idemp
 | `gold_22k_price` | float | yes | per gram in ₹ |
 | `silver_price` | float | yes | per gram in ₹ |
 | `platinum_price` | float | yes | per gram in ₹ |
-| `price_date` | string (10) | yes | IST date `"2026-03-29"` |
+| `price_date` | string (64) | yes | IST date `"2026-03-29"` |
 | `price_changed_at` | datetime | yes | when any price last changed |
 | `last_checked_at` | datetime | yes | when we last polled the API |
 

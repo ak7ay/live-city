@@ -70,7 +70,7 @@ async function createAttributes(databases: Databases): Promise<void> {
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createStringAttribute(DB_ID, COLLECTION_METAL_PRICES, "price_date", 10, true),
+		() => databases.createStringAttribute(DB_ID, COLLECTION_METAL_PRICES, "price_date", 64, true),
 		"price_date",
 	);
 
@@ -103,7 +103,33 @@ async function createIndexIfNotExists(
 	}
 }
 
+async function waitForAttributes(databases: Databases): Promise<void> {
+	const maxAttempts = 30;
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const { attributes } = await databases.listAttributes(DB_ID, COLLECTION_METAL_PRICES);
+		const pending = attributes.filter((a: any) => a.status !== "available");
+		if (pending.length === 0) {
+			console.log("All attributes are available.");
+			return;
+		}
+		console.log(`Waiting for ${pending.length} attribute(s) to be ready... (attempt ${attempt}/${maxAttempts})`);
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+	}
+	throw new Error("Timed out waiting for attributes to become available");
+}
+
+async function deleteFailedIndexes(databases: Databases): Promise<void> {
+	const { indexes } = await databases.listIndexes(DB_ID, COLLECTION_METAL_PRICES);
+	for (const index of indexes) {
+		if ((index as any).status === "failed") {
+			console.log(`Deleting failed index "${index.key}"...`);
+			await databases.deleteIndex(DB_ID, COLLECTION_METAL_PRICES, index.key);
+		}
+	}
+}
+
 async function createIndexes(databases: Databases): Promise<void> {
+	await deleteFailedIndexes(databases);
 	await createIndexIfNotExists(databases, "idx_city_date", DatabasesIndexType.Key, ["city", "price_date"]);
 	await createIndexIfNotExists(
 		databases,
@@ -125,8 +151,8 @@ async function main(): Promise<void> {
 	await createCollectionIfNotExists(databases);
 	await createAttributes(databases);
 
-	console.log("\nWaiting 3 seconds for attributes to be processed...");
-	await new Promise((resolve) => setTimeout(resolve, 3000));
+	console.log("\nWaiting for attributes to be processed...");
+	await waitForAttributes(databases);
 
 	await createIndexes(databases);
 
