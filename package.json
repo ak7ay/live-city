@@ -19,6 +19,7 @@
 		"prepare": "husky"
 	},
 	"dependencies": {
+		"@mariozechner/pi-coding-agent": "^0.63.1",
 		"node-appwrite": "^23.0.0",
 		"node-cron": "^4.2.1",
 		"yaml": "^2.8.3",
