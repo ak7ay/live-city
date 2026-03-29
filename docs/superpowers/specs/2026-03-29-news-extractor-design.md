@@ -113,7 +113,7 @@ Scheduler triggers (8am / 1pm / 7pm IST)
 | `source` | varchar | 64 | yes | `tv9kannada` / `publictv` / `tv9kannada,publictv` (comma-separated if both) |
 | `source_count` | integer | — | yes | How many sources carried this story (1 or 2) |
 | `original_url` | varchar | 512 | no | Internal reference, not shown to users |
-| `thumbnail_id` | varchar | 64 | no | Appwrite Storage file ID |
+| `thumbnail_url` | varchar | 512 | no | Direct URL to source CDN image |
 | `news_date` | varchar | 64 | yes | `2026-03-29` (IST date) |
 | `rank` | integer | — | yes | 1-5 position in today's top 5 |
 | `fetched_at` | datetime | — | yes | When this scrape ran |
@@ -164,15 +164,17 @@ Starts with known findings from exploration. Evolves over time as the agent enco
 
 ## Thumbnail Handling
 
-1. Agent returns `thumbnail_url` for each article (extracted from API/RSS)
-2. Code downloads the image via HTTP
-3. Code uploads to Appwrite Storage (bucket: `news_thumbnails`)
-4. Code stores the returned file ID in `thumbnail_id` column
-5. Mobile app retrieves via Appwrite Storage URL
+Hotlink directly from source CDNs — no download/upload step.
+
+1. Agent extracts thumbnail URL from each source
+2. Code stores the URL as-is in `thumbnail_url`
+3. App loads images directly from source CDN
 
 Image source per site:
 - **PublicTV**: `GET /wp-json/wp/v2/media/{featured_media_id}?_fields=source_url` → full-size image URL
 - **TV9**: first `<img src="...">` in `content:encoded` → `images.tv9kannada.com/...`
+
+> **Future fallback:** If source CDNs start blocking hotlinking or deleting old images, switch to download → upload to Appwrite Storage. Change `thumbnail_url` to `thumbnail_id` (Appwrite file ID) and add a storage bucket `news_thumbnails`.
 
 ## Schedule
 
