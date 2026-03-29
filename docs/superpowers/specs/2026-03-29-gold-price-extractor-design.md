@@ -6,13 +6,36 @@ Fetch gold, silver, and platinum prices from Lalithaa Jewellery's public API eve
 
 ## Data Source
 
-**API:** `https://api.lalithaajewellery.com/public/pricings/latest?state_id={state_id}`
+**Pricing API:** `https://api.lalithaajewellery.com/public/pricings/latest?state_id={state_id}`
 
-No auth required. Returns JSON with `gold`, `silver`, `platinum` prices per gram.
+**States API:** `https://api.lalithaajewellery.com/public/states?page=1&limit=100`
 
-**Karnataka state_id:** `fbe51d69-c3ef-466f-a8f4-7c382759e35f`
+No auth required. Returns JSON with `gold`, `silver`, `platinum` prices per gram. One API serves all cities — prices vary by state.
 
 No browser or AI agent needed — plain HTTP fetch.
+
+## Source Config (`config/sources/lalithaa.yaml`)
+
+API URLs and state-to-city mapping. State IDs are resolved at runtime from the states API — not hardcoded.
+
+```yaml
+name: lalithaa_jewellery
+api_url: https://api.lalithaajewellery.com/public/pricings/latest
+states_api_url: https://api.lalithaajewellery.com/public/states
+states:
+  - state_name: Karnataka
+    city: bengaluru
+  - state_name: Tamilnadu
+    city: chennai
+  - state_name: Telangana
+    city: hyderabad
+  - state_name: Andhra Pradesh
+    city: vijayawada
+  - state_name: Puducherry
+    city: puducherry
+```
+
+**Startup flow:** Load YAML → fetch states API → match `state_name` → resolve `state_id` for each city. If a state name doesn't match, log a warning and skip that city.
 
 ## Appwrite Setup
 
@@ -53,10 +76,16 @@ A script that creates the database and collection via `node-appwrite` SDK. Idemp
 
 ## Price Fetcher (`src/sources/lalithaa.ts`)
 
-A plain function — no agent, no browser.
+A plain module — no agent, no browser.
 
 ```typescript
-async function fetchLalithaaPrice(stateId: string): Promise<{
+// Resolve state IDs from states API at startup
+async function resolveStateIds(
+  config: LalithaaConfig
+): Promise<Map<string, { stateId: string; city: string }>>
+
+// Fetch prices for a single state
+async function fetchPrice(stateId: string): Promise<{
   gold_22k_price: number;
   silver_price: number;
   platinum_price: number;
@@ -65,7 +94,9 @@ async function fetchLalithaaPrice(stateId: string): Promise<{
 ```
 
 - Uses native `fetch()` (Node 22+)
-- Validates response with zod
+- Validates responses with zod
+- `resolveStateIds()` called once at startup, cached in memory
+- `fetchPrice()` called per state per tick
 - Throws on non-200 or unexpected shape
 
 ## Scheduler (`src/scheduler.ts`)
@@ -78,9 +109,9 @@ Note: `9-15` covers 9:00–15:59 IST. The 4 PM (16:00) final check is handled by
 
 ## Insert/Update Logic (`src/extractor/price-updater.ts`)
 
-On each scheduled tick:
+On each scheduled tick, for each city:
 
-1. Fetch prices from Lalithaa API
+1. Fetch prices from Lalithaa API using resolved `state_id`
 2. Query Appwrite for the latest row matching `city` + today's `price_date`
 3. **No row for today** → insert new row (`price_changed_at` = now, `last_checked_at` = now)
 4. **Row exists, prices differ** → insert new row (`price_changed_at` = now, `last_checked_at` = now)
@@ -88,18 +119,23 @@ On each scheduled tick:
 
 "Prices differ" means any of `gold_22k_price`, `silver_price`, or `platinum_price` changed.
 
+All cities are processed in parallel (Promise.all). A failure for one city doesn't block others.
+
 ## File Structure
 
 ```
+config/
+└── sources/
+    └── lalithaa.yaml     # API URLs + state-to-city mapping
 src/
-├── index.ts              # Entry point — starts scheduler
+├── index.ts              # Entry point — resolves state IDs, starts scheduler
 ├── setup-db.ts           # One-time Appwrite schema setup (run manually)
 ├── config/
 │   └── appwrite.ts       # Appwrite client init from env vars
 ├── sources/
-│   └── lalithaa.ts       # Fetch prices from Lalithaa API
+│   └── lalithaa.ts       # Fetch states + prices from Lalithaa API
 ├── extractor/
-│   └── price-updater.ts  # Compare + insert/update logic
+│   └── price-updater.ts  # Compare + insert/update logic (per city)
 └── scheduler.ts          # Cron job setup
 ```
 
