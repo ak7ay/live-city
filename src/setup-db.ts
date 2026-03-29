@@ -1,6 +1,6 @@
 import { OrderBy, type TablesDB, TablesDBIndexType } from "node-appwrite";
 import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
-import { DB_ID, TABLE_METAL_PRICES } from "./config/constants.js";
+import { DB_ID, TABLE_METAL_PRICES, TABLE_NEWS_ARTICLES } from "./config/constants.js";
 import { loadEnv } from "./config/env.js";
 
 async function createDatabaseIfNotExists(db: TablesDB): Promise<void> {
@@ -23,9 +23,14 @@ async function createTableIfNotExists(db: TablesDB): Promise<void> {
 	}
 }
 
-async function createColumnIfNotExists(db: TablesDB, createFn: () => Promise<unknown>, name: string): Promise<void> {
+async function createColumnIfNotExists(
+	db: TablesDB,
+	tableId: string,
+	createFn: () => Promise<unknown>,
+	name: string,
+): Promise<void> {
 	try {
-		await db.getColumn({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES, key: name });
+		await db.getColumn({ databaseId: DB_ID, tableId, key: name });
 		console.log(`Column "${name}" already exists, skipping.`);
 	} catch {
 		await createFn();
@@ -36,6 +41,7 @@ async function createColumnIfNotExists(db: TablesDB, createFn: () => Promise<unk
 async function createColumns(db: TablesDB): Promise<void> {
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createVarcharColumn({
 				databaseId: DB_ID,
@@ -49,6 +55,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createVarcharColumn({
 				databaseId: DB_ID,
@@ -62,6 +69,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createFloatColumn({
 				databaseId: DB_ID,
@@ -74,6 +82,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createFloatColumn({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES, key: "silver_price", required: true }),
 		"silver_price",
@@ -81,6 +90,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createFloatColumn({
 				databaseId: DB_ID,
@@ -93,6 +103,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createVarcharColumn({
 				databaseId: DB_ID,
@@ -106,6 +117,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createDatetimeColumn({
 				databaseId: DB_ID,
@@ -118,6 +130,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 	await createColumnIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		() =>
 			db.createDatetimeColumn({
 				databaseId: DB_ID,
@@ -131,24 +144,25 @@ async function createColumns(db: TablesDB): Promise<void> {
 
 async function createIndexIfNotExists(
 	db: TablesDB,
+	tableId: string,
 	key: string,
 	type: TablesDBIndexType,
 	columns: string[],
 	orders?: OrderBy[],
 ): Promise<void> {
 	try {
-		await db.getIndex({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES, key });
+		await db.getIndex({ databaseId: DB_ID, tableId, key });
 		console.log(`Index "${key}" already exists, skipping.`);
 	} catch {
-		await db.createIndex({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES, key, type, columns, orders });
+		await db.createIndex({ databaseId: DB_ID, tableId, key, type, columns, orders });
 		console.log(`Index "${key}" created.`);
 	}
 }
 
-async function waitForColumns(db: TablesDB): Promise<void> {
+async function waitForColumns(db: TablesDB, tableId: string): Promise<void> {
 	const maxAttempts = 30;
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		const { columns } = await db.listColumns({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES });
+		const { columns } = await db.listColumns({ databaseId: DB_ID, tableId });
 		const pending = columns.filter((c: any) => c.status !== "available");
 		if (pending.length === 0) {
 			console.log("All columns are available.");
@@ -160,26 +174,213 @@ async function waitForColumns(db: TablesDB): Promise<void> {
 	throw new Error("Timed out waiting for columns to become available");
 }
 
-async function deleteFailedIndexes(db: TablesDB): Promise<void> {
-	const { indexes } = await db.listIndexes({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES });
+async function deleteFailedIndexes(db: TablesDB, tableId: string): Promise<void> {
+	const { indexes } = await db.listIndexes({ databaseId: DB_ID, tableId });
 	for (const index of indexes) {
 		if ((index as any).status === "failed") {
 			console.log(`Deleting failed index "${index.key}"...`);
-			await db.deleteIndex({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES, key: index.key });
+			await db.deleteIndex({ databaseId: DB_ID, tableId, key: index.key });
 		}
 	}
 }
 
 async function createIndexes(db: TablesDB): Promise<void> {
-	await deleteFailedIndexes(db);
-	await createIndexIfNotExists(db, "idx_city_date", TablesDBIndexType.Key, ["city", "price_date"]);
+	await deleteFailedIndexes(db, TABLE_METAL_PRICES);
+	await createIndexIfNotExists(db, TABLE_METAL_PRICES, "idx_city_date", TablesDBIndexType.Key, ["city", "price_date"]);
 	await createIndexIfNotExists(
 		db,
+		TABLE_METAL_PRICES,
 		"idx_city_date_desc",
 		TablesDBIndexType.Key,
 		["city", "price_date"],
 		[OrderBy.Asc, OrderBy.Desc],
 	);
+}
+
+async function createNewsTableIfNotExists(db: TablesDB): Promise<void> {
+	try {
+		await db.getTable({ databaseId: DB_ID, tableId: TABLE_NEWS_ARTICLES });
+		console.log(`Table "${TABLE_NEWS_ARTICLES}" already exists, skipping.`);
+	} catch {
+		await db.createTable({ databaseId: DB_ID, tableId: TABLE_NEWS_ARTICLES, name: TABLE_NEWS_ARTICLES });
+		console.log(`Table "${TABLE_NEWS_ARTICLES}" created.`);
+	}
+}
+
+async function createNewsColumns(db: TablesDB): Promise<void> {
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "city",
+				size: 64,
+				required: true,
+			}),
+		"city",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "headline",
+				size: 512,
+				required: true,
+			}),
+		"headline",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "summary",
+				size: 2048,
+				required: true,
+			}),
+		"summary",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createTextColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "content",
+				required: true,
+			}),
+		"content",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "category",
+				size: 64,
+				required: true,
+			}),
+		"category",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "source",
+				size: 64,
+				required: true,
+			}),
+		"source",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createIntegerColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "source_count",
+				required: true,
+			}),
+		"source_count",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "original_url",
+				size: 512,
+				required: false,
+			}),
+		"original_url",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "thumbnail_url",
+				size: 512,
+				required: false,
+			}),
+		"thumbnail_url",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createVarcharColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "news_date",
+				size: 64,
+				required: true,
+			}),
+		"news_date",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createIntegerColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "rank",
+				required: true,
+			}),
+		"rank",
+	);
+
+	await createColumnIfNotExists(
+		db,
+		TABLE_NEWS_ARTICLES,
+		() =>
+			db.createDatetimeColumn({
+				databaseId: DB_ID,
+				tableId: TABLE_NEWS_ARTICLES,
+				key: "fetched_at",
+				required: true,
+			}),
+		"fetched_at",
+	);
+}
+
+async function createNewsIndexes(db: TablesDB): Promise<void> {
+	await deleteFailedIndexes(db, TABLE_NEWS_ARTICLES);
+	await createIndexIfNotExists(db, TABLE_NEWS_ARTICLES, "idx_city_date", TablesDBIndexType.Key, ["city", "news_date"]);
+	await createIndexIfNotExists(db, TABLE_NEWS_ARTICLES, "idx_city_date_rank", TablesDBIndexType.Key, [
+		"city",
+		"news_date",
+		"rank",
+	]);
 }
 
 async function main(): Promise<void> {
@@ -194,9 +395,15 @@ async function main(): Promise<void> {
 	await createColumns(db);
 
 	console.log("\nWaiting for columns to be processed...");
-	await waitForColumns(db);
+	await waitForColumns(db, TABLE_METAL_PRICES);
 
 	await createIndexes(db);
+
+	await createNewsTableIfNotExists(db);
+	await createNewsColumns(db);
+	console.log("\nWaiting for news columns to be processed...");
+	await waitForColumns(db, TABLE_NEWS_ARTICLES);
+	await createNewsIndexes(db);
 
 	console.log("\nSchema setup complete.");
 }
