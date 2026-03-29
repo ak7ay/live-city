@@ -8,24 +8,21 @@ import { type NewsArticle, newsArticlesSchema } from "./schema.js";
 const MAX_VALIDATION_RETRIES = 3;
 
 function buildUserPrompt(playbook: string, city: string, today: string): string {
-	return `Fetch today's top 5 ${city} news stories from Kannada sources, translate them to English, and return structured JSON.
+	return `Fetch today's top 5 ${city} news stories, translate them to English, and return structured JSON.
 
-## Playbook — How to fetch the data
+## Playbook
+The playbook below contains ALL city-specific details: sources, API endpoints, curation rules, translation rules, and known quirks. Follow it exactly.
+
 ${playbook}
 
 ## Steps
 
-1. Use bash tool to run curl commands to fetch listings from BOTH sources:
-   - PublicTV: curl the WordPress REST API endpoint from the playbook
-   - TV9 Kannada: curl the RSS feed endpoint from the playbook
-2. Read all titles and excerpts/descriptions from both sources
-3. Pick the top 5 most newsworthy ${city} stories. Stories appearing on BOTH sources rank higher.
-4. For each of the 5 winners, ensure you have the full article content:
-   - PublicTV: fetch full article by ID if needed
-   - TV9: content:encoded is already in the RSS
-5. Strip HTML noise (video embeds, "also read" links, footer links)
-6. Translate everything from Kannada to English
-7. Translate the source category tags to English too
+1. Use bash tool to run curl commands to fetch listings from ALL sources listed in the playbook
+2. Read all titles and excerpts/descriptions from each source
+3. Pick the top 5 most newsworthy ${city} stories following the curation rules in the playbook
+4. For each of the 5 winners, ensure you have the full article content (follow the source-specific instructions in the playbook)
+5. Clean up content following the quirks and stripping rules in the playbook
+6. Translate everything to English following the translation rules in the playbook
 
 ## Output
 
@@ -37,7 +34,7 @@ Your FINAL message must be ONLY a JSON array with exactly 5 objects, no markdown
     "summary": "1-2 sentence English summary",
     "content": "Full article body in English markdown format",
     "category": "English category translated from source",
-    "source": "tv9kannada or publictv or tv9kannada,publictv if on both",
+    "source": "source identifier(s) as described in playbook",
     "source_count": 1,
     "original_url": "https://...",
     "thumbnail_url": "https://...",
@@ -45,10 +42,14 @@ Your FINAL message must be ONLY a JSON array with exactly 5 objects, no markdown
   }
 ]
 
+- source_count: 1 if from one source, 2 if the story appeared on multiple sources
+- rank: 1 = most important, 5 = least important
+- original_url and thumbnail_url are optional — include if available from the source
+
 Today's date: ${today}
 City: ${city}
 
-Start by fetching both sources now.`;
+Start by fetching all sources now.`;
 }
 
 function extractJson(text: string): string | null {
