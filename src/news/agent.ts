@@ -11,18 +11,31 @@ function buildUserPrompt(playbook: string, city: string, today: string): string 
 	return `Fetch today's top 5 ${city} news stories, translate them to English, and return structured JSON.
 
 ## Playbook
-The playbook below contains ALL city-specific details: sources, API endpoints, curation rules, translation rules, and known quirks. Follow it exactly.
+The playbook below contains city-specific details: sources, API endpoints, content quirks, and known issues. Follow it for all fetching and content cleanup.
 
 ${playbook}
 
 ## Steps
 
-1. Use bash tool to run curl commands to fetch listings from ALL sources listed in the playbook
-2. Read all titles and excerpts/descriptions from each source
-3. Pick the top 5 most newsworthy ${city} stories following the curation rules in the playbook
-4. For each of the 5 winners, ensure you have the full article content (follow the source-specific instructions in the playbook)
-5. Clean up content following the quirks and stripping rules in the playbook
-6. Translate everything to English following the translation rules in the playbook
+### 1. Fetch all sources
+Use bash tool to run curl commands to fetch listings from ALL sources listed in the playbook.
+
+### 2. Cross-source matching
+Before picking winners, compare ALL titles/excerpts across ALL sources and identify which stories appear on multiple sources. Two articles match if they cover the same event, even if worded differently. Write out a match table listing every cross-source match and every single-source-only story.
+
+### 3. Pick the top 5
+- **Cross-source stories (source_count: 2) MUST rank above single-source stories.** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
+- Among stories of equal source_count, prefer diversity of categories. Avoid picking multiple stories from the same category if others are available.
+
+### 4. Get full content + thumbnails
+For each of the 5 winners, fetch full article content and thumbnail following the source-specific instructions in the playbook. Every article must have a thumbnail — all sources provide images.
+
+### 5. Translate
+- Translate all text to natural, readable English
+- Headlines: concise, newspaper-style
+- Summary: 1-2 sentences capturing the key facts
+- Content: full article body as clean markdown (## for subheadings, paragraphs, no HTML)
+- Category: translate the source's category tag to English
 
 ## Output
 
@@ -34,7 +47,7 @@ Your FINAL message must be ONLY a JSON array with exactly 5 objects, no markdown
     "summary": "1-2 sentence English summary",
     "content": "Full article body in English markdown format",
     "category": "English category translated from source",
-    "source": "source identifier(s) as described in playbook",
+    "source": "comma-separated source identifiers if on multiple sources",
     "source_count": 1,
     "original_url": "https://...",
     "thumbnail_url": "https://...",
@@ -42,9 +55,9 @@ Your FINAL message must be ONLY a JSON array with exactly 5 objects, no markdown
   }
 ]
 
-- source_count: 1 if from one source, 2 if the story appeared on multiple sources
+- source_count: number of sources the story appeared on
 - rank: 1 = most important, 5 = least important
-- original_url and thumbnail_url are optional — include if available from the source
+- For cross-source stories: combine best details from all versions
 
 Today's date: ${today}
 City: ${city}
