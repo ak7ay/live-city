@@ -5,20 +5,24 @@ import { loadEnv } from "./config/env.js";
 
 async function createDatabaseIfNotExists(databases: Databases): Promise<void> {
 	try {
-		await databases.get(DB_ID);
+		await databases.get({ databaseId: DB_ID });
 		console.log(`Database "${DB_ID}" already exists, skipping.`);
 	} catch {
-		await databases.create(DB_ID, DB_ID);
+		await databases.create({ databaseId: DB_ID, name: DB_ID });
 		console.log(`Database "${DB_ID}" created.`);
 	}
 }
 
 async function createCollectionIfNotExists(databases: Databases): Promise<void> {
 	try {
-		await databases.getCollection(DB_ID, COLLECTION_METAL_PRICES);
+		await databases.getCollection({ databaseId: DB_ID, collectionId: COLLECTION_METAL_PRICES });
 		console.log(`Collection "${COLLECTION_METAL_PRICES}" already exists, skipping.`);
 	} catch {
-		await databases.createCollection(DB_ID, COLLECTION_METAL_PRICES, COLLECTION_METAL_PRICES);
+		await databases.createCollection({
+			databaseId: DB_ID,
+			collectionId: COLLECTION_METAL_PRICES,
+			name: COLLECTION_METAL_PRICES,
+		});
 		console.log(`Collection "${COLLECTION_METAL_PRICES}" created.`);
 	}
 }
@@ -29,7 +33,7 @@ async function createAttributeIfNotExists(
 	name: string,
 ): Promise<void> {
 	try {
-		await databases.getAttribute(DB_ID, COLLECTION_METAL_PRICES, name);
+		await databases.getAttribute({ databaseId: DB_ID, collectionId: COLLECTION_METAL_PRICES, key: name });
 		console.log(`Attribute "${name}" already exists, skipping.`);
 	} catch {
 		await createFn();
@@ -40,49 +44,100 @@ async function createAttributeIfNotExists(
 async function createAttributes(databases: Databases): Promise<void> {
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createStringAttribute(DB_ID, COLLECTION_METAL_PRICES, "city", 64, true),
+		() =>
+			databases.createStringAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "city",
+				size: 64,
+				required: true,
+			}),
 		"city",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createStringAttribute(DB_ID, COLLECTION_METAL_PRICES, "source", 64, true),
+		() =>
+			databases.createStringAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "source",
+				size: 64,
+				required: true,
+			}),
 		"source",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createFloatAttribute(DB_ID, COLLECTION_METAL_PRICES, "gold_22k_price", true),
+		() =>
+			databases.createFloatAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "gold_22k_price",
+				required: true,
+			}),
 		"gold_22k_price",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createFloatAttribute(DB_ID, COLLECTION_METAL_PRICES, "silver_price", true),
+		() =>
+			databases.createFloatAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "silver_price",
+				required: true,
+			}),
 		"silver_price",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createFloatAttribute(DB_ID, COLLECTION_METAL_PRICES, "platinum_price", true),
+		() =>
+			databases.createFloatAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "platinum_price",
+				required: true,
+			}),
 		"platinum_price",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createStringAttribute(DB_ID, COLLECTION_METAL_PRICES, "price_date", 64, true),
+		() =>
+			databases.createStringAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "price_date",
+				size: 64,
+				required: true,
+			}),
 		"price_date",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createDatetimeAttribute(DB_ID, COLLECTION_METAL_PRICES, "price_changed_at", true),
+		() =>
+			databases.createDatetimeAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "price_changed_at",
+				required: true,
+			}),
 		"price_changed_at",
 	);
 
 	await createAttributeIfNotExists(
 		databases,
-		() => databases.createDatetimeAttribute(DB_ID, COLLECTION_METAL_PRICES, "last_checked_at", true),
+		() =>
+			databases.createDatetimeAttribute({
+				databaseId: DB_ID,
+				collectionId: COLLECTION_METAL_PRICES,
+				key: "last_checked_at",
+				required: true,
+			}),
 		"last_checked_at",
 	);
 }
@@ -95,10 +150,17 @@ async function createIndexIfNotExists(
 	orders?: OrderBy[],
 ): Promise<void> {
 	try {
-		await databases.getIndex(DB_ID, COLLECTION_METAL_PRICES, key);
+		await databases.getIndex({ databaseId: DB_ID, collectionId: COLLECTION_METAL_PRICES, key });
 		console.log(`Index "${key}" already exists, skipping.`);
 	} catch {
-		await databases.createIndex(DB_ID, COLLECTION_METAL_PRICES, key, type, attributes, orders);
+		await databases.createIndex({
+			databaseId: DB_ID,
+			collectionId: COLLECTION_METAL_PRICES,
+			key,
+			type,
+			attributes,
+			orders,
+		});
 		console.log(`Index "${key}" created.`);
 	}
 }
@@ -106,7 +168,10 @@ async function createIndexIfNotExists(
 async function waitForAttributes(databases: Databases): Promise<void> {
 	const maxAttempts = 30;
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		const { attributes } = await databases.listAttributes(DB_ID, COLLECTION_METAL_PRICES);
+		const { attributes } = await databases.listAttributes({
+			databaseId: DB_ID,
+			collectionId: COLLECTION_METAL_PRICES,
+		});
 		const pending = attributes.filter((a: any) => a.status !== "available");
 		if (pending.length === 0) {
 			console.log("All attributes are available.");
@@ -119,11 +184,14 @@ async function waitForAttributes(databases: Databases): Promise<void> {
 }
 
 async function deleteFailedIndexes(databases: Databases): Promise<void> {
-	const { indexes } = await databases.listIndexes(DB_ID, COLLECTION_METAL_PRICES);
+	const { indexes } = await databases.listIndexes({
+		databaseId: DB_ID,
+		collectionId: COLLECTION_METAL_PRICES,
+	});
 	for (const index of indexes) {
 		if ((index as any).status === "failed") {
 			console.log(`Deleting failed index "${index.key}"...`);
-			await databases.deleteIndex(DB_ID, COLLECTION_METAL_PRICES, index.key);
+			await databases.deleteIndex({ databaseId: DB_ID, collectionId: COLLECTION_METAL_PRICES, key: index.key });
 		}
 	}
 }
