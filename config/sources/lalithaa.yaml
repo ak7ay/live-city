@@ -1,0 +1,14 @@
+name: lalithaa_jewellery
+api_url: https://api.lalithaajewellery.com/public/pricings/latest
+states_api_url: https://api.lalithaajewellery.com/public/states
+states:
+  - state_name: Karnataka
+    city: bengaluru
+  - state_name: Tamilnadu
+    city: chennai
+  - state_name: Telangana
+    city: hyderabad
+  - state_name: Andhra Pradesh
+    city: vijayawada
+  - state_name: Puducherry
+    city: puducherry
