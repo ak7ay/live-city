@@ -9,6 +9,7 @@
 		"build": "tsc",
 		"start": "node dist/index.js",
 		"dev": "tsx watch src/index.ts",
+		"setup-db": "tsx src/setup-db.ts",
 		"check": "biome check --write --error-on-warnings . && tsc --noEmit",
 		"lint": "biome check .",
 		"format": "biome format --write .",
