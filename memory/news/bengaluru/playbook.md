@@ -58,12 +58,33 @@ GET https://tv9kannada.com/karnataka/bengaluru/feed
 
 ## Curation Rules
 
-1. Fetch listings from **both** sources
-2. Read all titles + excerpts/descriptions
-3. Pick the **top 5** most important Bengaluru news stories
-4. **Cross-source stories rank higher** — if the same story appears on both PublicTV and TV9, it's more important
-5. Prefer diversity — don't pick 5 crime stories if there's also infrastructure, weather, politics news
-6. For cross-source stories: read both versions, produce the best translation combining details from both
+### Step 1: Fetch both sources
+Fetch listings from **both** PublicTV API and TV9 RSS feed.
+
+### Step 2: Build a cross-source match table
+Before picking any winners, compare ALL titles/excerpts from both sources and identify which stories appear on both. Two articles match if they cover the same event, even if worded differently. Output the match table to yourself like:
+
+```
+CROSS-SOURCE MATCHES:
+- "Gas cylinder shortage" — PublicTV #3, TV9 #5 → source_count: 2
+- "Bengaluru rain/weather" — PublicTV #1, TV9 #4 → source_count: 2
+- ...
+
+SINGLE-SOURCE ONLY:
+- "Driverless metro trains" — TV9 only → source_count: 1
+- ...
+```
+
+### Step 3: Pick the top 5
+- **Cross-source stories (source_count: 2) MUST rank above single-source stories (source_count: 1).** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
+- Among stories of equal source_count, prefer: weather/civic > infrastructure > politics > crime. Avoid picking multiple crime stories if other categories are available.
+- For cross-source stories: set `source` to `"publictv,tv9kannada"` and `source_count` to `2`. Use the best details from both versions.
+
+### Step 4: Get full content + thumbnails
+For each of the 5 winners:
+- Fetch full article content (PublicTV: full article by ID, TV9: content:encoded from RSS)
+- Fetch thumbnail (PublicTV: media API endpoint for featured_media ID, TV9: first `<img src>` from content:encoded)
+- **Every article must have a thumbnail.** Both sources provide images for all articles — if you're missing one, you didn't fetch it correctly.
 
 ## Translation Rules
 
