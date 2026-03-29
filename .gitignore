@@ -8,6 +8,7 @@ dist/
 .env
 
 # Logs
+logs/
 *.log
 
 # OS files
