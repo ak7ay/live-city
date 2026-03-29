@@ -21,8 +21,14 @@ ${playbook}
 ### 1. Fetch all sources
 Use bash tool to run curl commands to fetch listings from ALL sources listed in the playbook.
 
-### 2. Cross-source matching
-Before picking winners, compare ALL titles/excerpts across ALL sources and identify which stories appear on multiple sources. Two articles match if they cover the same event, even if worded differently. Write out a match table listing every cross-source match and every single-source-only story.
+### 2. Cross-source matching (MANDATORY — do not skip)
+You MUST print a cross-source match table before picking any winners. For every story from source A, check if the same event is covered by source B. Two articles match if they describe the same event, even if worded differently.
+
+Print this table in your response as a numbered list:
+- For each match: the event, which sources cover it, source_count = 2
+- For each unmatched story: the event, which source, source_count = 1
+
+DO NOT proceed to step 3 until this table is printed.
 
 ### 3. Pick the top 5
 - **Cross-source stories (source_count: 2) MUST rank above single-source stories.** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
