@@ -62,18 +62,7 @@ GET https://tv9kannada.com/karnataka/bengaluru/feed
 Fetch listings from **both** PublicTV API and TV9 RSS feed.
 
 ### Step 2: Build a cross-source match table
-Before picking any winners, compare ALL titles/excerpts from both sources and identify which stories appear on both. Two articles match if they cover the same event, even if worded differently. Output the match table to yourself like:
-
-```
-CROSS-SOURCE MATCHES:
-- "Gas cylinder shortage" — PublicTV #3, TV9 #5 → source_count: 2
-- "Bengaluru rain/weather" — PublicTV #1, TV9 #4 → source_count: 2
-- ...
-
-SINGLE-SOURCE ONLY:
-- "Driverless metro trains" — TV9 only → source_count: 1
-- ...
-```
+Before picking any winners, compare ALL titles/excerpts from both sources and identify which stories appear on both. Two articles match if they cover the same event, even if worded differently. Write out a match table listing every cross-source match found and every single-source-only story, with source references and source_count for each.
 
 ### Step 3: Pick the top 5
 - **Cross-source stories (source_count: 2) MUST rank above single-source stories (source_count: 1).** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
