@@ -19,25 +19,22 @@ ${playbook}
 ## Steps
 
 ### 1. Fetch all sources
-Use bash tool to run curl commands to fetch listings from ALL sources listed in the playbook.
+Use bash tool to fetch listings from ALL sources listed in the playbook.
 
-### 2. Cross-source matching (MANDATORY — do not skip)
-You MUST print a cross-source match table before picking any winners. For every story from source A, check if the same event is covered by source B. Two articles match if they describe the same event, even if worded differently.
+### 2. Write all scraped stories to a file
+Write a file listing EVERY story from EVERY source with: source name, translated title, 1-line translated summary. Group by source. This is your working dataset — do not skip this step.
 
-Print this table in your response as a numbered list:
-- For each match: the event, which sources cover it, source_count = 2
-- For each unmatched story: the event, which source, source_count = 1
+### 3. Cross-source matching
+Read back the file. For every story, check if the same event appears in another source. Two articles match if they describe the same event, even if worded differently. Write the match results to a file: matches with source_count = 2, and single-source stories with source_count = 1.
 
-DO NOT proceed to step 3 until this table is printed.
-
-### 3. Pick the top 5
+### 4. Pick the top 5
 - **Cross-source stories (source_count: 2) MUST rank above single-source stories.** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
 - Among stories of equal source_count, prefer diversity of categories. Avoid picking multiple stories from the same category if others are available.
 
-### 4. Get full content + thumbnails
+### 5. Get full content + thumbnails
 For each of the 5 winners, fetch full article content and thumbnail following the source-specific instructions in the playbook. Every article must have a thumbnail — all sources provide images.
 
-### 5. Translate
+### 6. Translate
 - Translate all text to natural, readable English
 - Headlines: concise, newspaper-style
 - Summary: 1-2 sentences capturing the key facts
