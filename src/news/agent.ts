@@ -86,7 +86,7 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 
 	const loader = new DefaultResourceLoader({
 		skillsOverride: () => ({ skills: [], diagnostics: [] }),
-		appendSystemPrompt: `You are a ${city} news curator. You have bash tool available — use it to run curl commands to fetch data from external APIs and RSS feeds. You CAN access the internet via curl.`,
+		appendSystemPrompt: `You are a ${city} news curator.`,
 	});
 	await loader.reload();
 
