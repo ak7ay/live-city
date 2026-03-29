@@ -84,10 +84,12 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 	});
 
 	let fullResponse = "";
+	let unsubscribe: (() => void) | undefined;
 
 	const captureResponse = () => {
+		unsubscribe?.();
 		fullResponse = "";
-		session.subscribe((event) => {
+		unsubscribe = session.subscribe((event) => {
 			if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
 				fullResponse += event.assistantMessageEvent.delta;
 			}
@@ -141,6 +143,7 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 			`Validation failed after ${MAX_VALIDATION_RETRIES} retries: ${JSON.stringify(parsed.error.issues)}`,
 		);
 	} finally {
+		unsubscribe?.();
 		session.dispose();
 	}
 }
