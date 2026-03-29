@@ -3,6 +3,7 @@ import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
 import { loadEnv } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { loadLalithaaConfig } from "./config/source-loader.js";
+import { updateNewsForCity } from "./extractor/news-updater.js";
 import { updatePriceForCity } from "./extractor/price-updater.js";
 import { startScheduler } from "./scheduler.js";
 import { fetchPrice, resolveStateIds } from "./sources/lalithaa.js";
@@ -44,8 +45,21 @@ async function main(): Promise<void> {
 	logger.info("Running initial price fetch...");
 	await onTick();
 
-	startScheduler("lalithaa-prices", onTick);
-	logger.info("Price extractor running. Press Ctrl+C to stop.");
+	startScheduler("lalithaa-prices", "*/10 9-16 * * *", onTick);
+
+	const newsTick = async () => {
+		try {
+			await updateNewsForCity(db, "bengaluru");
+		} catch (error) {
+			logger.error({ error }, "News update failed for bengaluru");
+		}
+	};
+
+	logger.info("Running initial news fetch...");
+	await newsTick();
+	startScheduler("bengaluru-news", "0 8,13,19 * * *", newsTick);
+
+	logger.info("Price & news extractors running. Press Ctrl+C to stop.");
 }
 
 main().catch((error) => {

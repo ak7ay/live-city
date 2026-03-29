@@ -1,9 +1,9 @@
 import cron from "node-cron";
 import { logger } from "./config/logger.js";
 
-export function startScheduler(jobName: string, onTick: () => Promise<void>): void {
+export function startScheduler(jobName: string, cronExpression: string, onTick: () => Promise<void>): void {
 	cron.schedule(
-		"*/10 9-16 * * *",
+		cronExpression,
 		async () => {
 			logger.info({ job: jobName }, "Scheduled tick started");
 			try {
@@ -15,5 +15,5 @@ export function startScheduler(jobName: string, onTick: () => Promise<void>): vo
 		{ timezone: "Asia/Kolkata" },
 	);
 
-	logger.info({ job: jobName }, "Scheduler started: every 10min, 9:00-16:50 IST");
+	logger.info({ job: jobName, cron: cronExpression }, "Scheduler started");
 }
