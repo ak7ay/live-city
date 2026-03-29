@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
@@ -84,18 +85,25 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 		throw new Error("Model not found: anthropic/claude-sonnet-4-20250514");
 	}
 
+	const agentCwd = mkdtempSync(join(tmpdir(), `news-agent-${city}-`));
+	log.info({ cwd: agentCwd }, "Created agent workspace");
+
 	const loader = new DefaultResourceLoader({
+		cwd: agentCwd,
 		skillsOverride: () => ({ skills: [], diagnostics: [] }),
 		appendSystemPrompt: `You are a ${city} news curator.`,
 	});
 	await loader.reload();
 
+	const sessionManager = SessionManager.create(agentCwd);
 	const { session } = await createAgentSession({
 		model,
 		thinkingLevel: "medium",
 		resourceLoader: loader,
-		sessionManager: SessionManager.inMemory(),
+		sessionManager,
 	});
+
+	log.info({ sessionDir: sessionManager.getCwd() }, "Agent session persisted");
 
 	let fullResponse = "";
 	let unsubscribe: (() => void) | undefined;
