@@ -31,3 +31,7 @@ coverage/
 # Misc
 *.cpuprofile
 .worktrees/
+
+# Agent skills (symlinks to .agents/)
+.claude/
+.pi/skills/
