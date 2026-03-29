@@ -66,7 +66,7 @@ Before picking any winners, compare ALL titles/excerpts from both sources and id
 
 ### Step 3: Pick the top 5
 - **Cross-source stories (source_count: 2) MUST rank above single-source stories (source_count: 1).** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
-- Among stories of equal source_count, prefer: weather/civic > infrastructure > politics > crime. Avoid picking multiple crime stories if other categories are available.
+- Among stories of equal source_count, prefer diversity of categories. Avoid picking multiple stories from the same category if other categories are available.
 - For cross-source stories: set `source` to `"publictv,tv9kannada"` and `source_count` to `2`. Use the best details from both versions.
 
 ### Step 4: Get full content + thumbnails
