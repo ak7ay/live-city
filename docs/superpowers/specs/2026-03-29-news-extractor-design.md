@@ -191,7 +191,7 @@ Each scrape replaces the day's top 5. The 7pm scrape produces the final daily sn
 - If agent session fails → retry once, then log error and skip this scrape
 - If one source API is down → agent proceeds with the other source, picks top 5 from what's available
 - If thumbnail URL is missing → store article without thumbnail (`thumbnail_url` is optional)
-- If Zod validation fails → log the raw agent response, skip this scrape
+- If Zod validation fails → send the validation errors back to the **same agent session** and ask it to fix. Retry up to 3 times. If still invalid after 3 attempts, log the raw response and skip this scrape
 
 ## Future Extensibility
 
