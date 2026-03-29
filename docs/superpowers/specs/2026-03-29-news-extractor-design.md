@@ -73,10 +73,10 @@ No orchestration logic in code. If we add a new source, we update the playbook �
 ```
 Scheduler triggers (8am / 1pm / 7pm IST)
 │
-├─ 1. Read playbook.md
+├─ 1. Read memory/news/{city}/playbook.md
 ├─ 2. Create agent session
 │     System prompt includes:
-│     - Playbook content (API endpoints, parsing hints)
+│     - City playbook content (API endpoints, parsing hints)
 │     - Today's date, city
 │     - Instructions: fetch, scan, pick top 5, translate, return JSON
 │
@@ -149,9 +149,14 @@ The agent returns this JSON, which code validates with Zod:
 
 ## Memory System
 
-### `memory/news/playbook.md`
+### `memory/news/{city}/playbook.md`
 
-Single file. The agent's instruction manual — read before each scrape, updated by the agent if something changes.
+One playbook per city. The agent session for a city reads only its own playbook.
+
+```
+memory/news/bengaluru/playbook.md
+memory/news/mysuru/playbook.md         ← future
+```
 
 Contains:
 - API endpoints and request formats for each source
