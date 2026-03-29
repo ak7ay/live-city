@@ -13,13 +13,13 @@ async function createDatabaseIfNotExists(db: TablesDB): Promise<void> {
 	}
 }
 
-async function createTableIfNotExists(db: TablesDB): Promise<void> {
+async function createTableIfNotExists(db: TablesDB, tableId: string): Promise<void> {
 	try {
-		await db.getTable({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES });
-		console.log(`Table "${TABLE_METAL_PRICES}" already exists, skipping.`);
+		await db.getTable({ databaseId: DB_ID, tableId });
+		console.log(`Table "${tableId}" already exists, skipping.`);
 	} catch {
-		await db.createTable({ databaseId: DB_ID, tableId: TABLE_METAL_PRICES, name: TABLE_METAL_PRICES });
-		console.log(`Table "${TABLE_METAL_PRICES}" created.`);
+		await db.createTable({ databaseId: DB_ID, tableId, name: tableId });
+		console.log(`Table "${tableId}" created.`);
 	}
 }
 
@@ -195,16 +195,6 @@ async function createIndexes(db: TablesDB): Promise<void> {
 		["city", "price_date"],
 		[OrderBy.Asc, OrderBy.Desc],
 	);
-}
-
-async function createNewsTableIfNotExists(db: TablesDB): Promise<void> {
-	try {
-		await db.getTable({ databaseId: DB_ID, tableId: TABLE_NEWS_ARTICLES });
-		console.log(`Table "${TABLE_NEWS_ARTICLES}" already exists, skipping.`);
-	} catch {
-		await db.createTable({ databaseId: DB_ID, tableId: TABLE_NEWS_ARTICLES, name: TABLE_NEWS_ARTICLES });
-		console.log(`Table "${TABLE_NEWS_ARTICLES}" created.`);
-	}
 }
 
 async function createNewsColumns(db: TablesDB): Promise<void> {
@@ -391,7 +381,7 @@ async function main(): Promise<void> {
 	console.log("Setting up Appwrite database schema...\n");
 
 	await createDatabaseIfNotExists(db);
-	await createTableIfNotExists(db);
+	await createTableIfNotExists(db, TABLE_METAL_PRICES);
 	await createColumns(db);
 
 	console.log("\nWaiting for columns to be processed...");
@@ -399,7 +389,7 @@ async function main(): Promise<void> {
 
 	await createIndexes(db);
 
-	await createNewsTableIfNotExists(db);
+	await createTableIfNotExists(db, TABLE_NEWS_ARTICLES);
 	await createNewsColumns(db);
 	console.log("\nWaiting for news columns to be processed...");
 	await waitForColumns(db, TABLE_NEWS_ARTICLES);
