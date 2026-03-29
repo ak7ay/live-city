@@ -1,5 +1,5 @@
 import { getModel } from "@mariozechner/pi-ai";
-import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
 
 const model = getModel("anthropic", "claude-opus-4-6");
 if (!model) {
@@ -7,9 +7,18 @@ if (!model) {
 	process.exit(1);
 }
 
+const loader = new DefaultResourceLoader({
+	skillsOverride: (current) => ({
+		skills: current.skills.filter((s) => s.name === "browser-tools"),
+		diagnostics: current.diagnostics,
+	}),
+});
+await loader.reload();
+
 const { session } = await createAgentSession({
 	model,
 	thinkingLevel: "medium",
+	resourceLoader: loader,
 	sessionManager: SessionManager.inMemory(),
 });
 
