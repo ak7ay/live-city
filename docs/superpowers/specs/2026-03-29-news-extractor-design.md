@@ -61,7 +61,7 @@ TypeScript code handles only:
 - Creating the agent session with playbook injected
 - Parsing the agent's JSON response
 - Validating with Zod
-- Downloading thumbnails → uploading to Appwrite Storage
+- Storing thumbnail URLs from agent response
 - Deleting today's existing top 5 from DB
 - Inserting new top 5
 - Committing any playbook updates from the agent
@@ -90,7 +90,7 @@ Scheduler triggers (8am / 1pm / 7pm IST)
 │
 ├─ 4. Code takes over:
 │     - Validate JSON with Zod
-│     - Download thumbnails → Appwrite Storage
+│     - Store thumbnail URLs
 │     - Delete today's existing top 5
 │     - Insert new top 5
 │
@@ -190,7 +190,7 @@ Each scrape replaces the day's top 5. The 7pm scrape produces the final daily sn
 
 - If agent session fails → retry once, then log error and skip this scrape
 - If one source API is down → agent proceeds with the other source, picks top 5 from what's available
-- If thumbnail download fails → store article without thumbnail (`thumbnail_id` is optional)
+- If thumbnail URL is missing → store article without thumbnail (`thumbnail_url` is optional)
 - If Zod validation fails → log the raw agent response, skip this scrape
 
 ## Future Extensibility
