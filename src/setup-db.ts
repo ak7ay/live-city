@@ -98,7 +98,7 @@ async function createColumns(db: TablesDB): Promise<void> {
 				databaseId: DB_ID,
 				tableId: TABLE_METAL_PRICES,
 				key: "price_date",
-				size: 10,
+				size: 64,
 				required: true,
 			}),
 		"price_date",

@@ -50,6 +50,7 @@ export async function updatePriceForCity(
 		tableId: TABLE_METAL_PRICES,
 		queries: [
 			Query.equal("city", city),
+			Query.equal("source", source),
 			Query.equal("price_date", today),
 			Query.orderDesc("$createdAt"),
 			Query.limit(1),

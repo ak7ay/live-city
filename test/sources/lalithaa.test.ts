@@ -49,7 +49,8 @@ describe("resolveStateIds", () => {
 	});
 
 	it("skips states not found in API response", async () => {
-		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { logger } = await import("../../src/config/logger.ts");
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => ({}) as any);
 
 		globalThis.fetch = vi.fn().mockResolvedValue({
 			ok: true,
@@ -68,7 +69,7 @@ describe("resolveStateIds", () => {
 		expect(result.size).toBe(1);
 		expect(result.get("bengaluru")).toEqual({ stateId: "state-1", city: "bengaluru" });
 		expect(result.has("chennai")).toBe(false);
-		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Tamilnadu"));
+		expect(warnSpy).toHaveBeenCalledWith(expect.objectContaining({ state_name: "Tamilnadu" }), expect.any(String));
 
 		warnSpy.mockRestore();
 	});

@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { logger } from "../config/logger.js";
 import type { LalithaaConfig } from "../config/source-loader.js";
 
 export interface ResolvedState {
@@ -61,7 +62,7 @@ export async function resolveStateIds(config: LalithaaConfig): Promise<Map<strin
 	for (const entry of config.states) {
 		const stateId = apiStatesByName.get(entry.state_name);
 		if (stateId === undefined) {
-			console.warn(`State "${entry.state_name}" not found in API response, skipping`);
+			logger.warn({ state_name: entry.state_name, city: entry.city }, "State not found in API response, skipping");
 			continue;
 		}
 		result.set(entry.city, { stateId, city: entry.city });
