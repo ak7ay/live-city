@@ -4,7 +4,7 @@
 
 **Goal:** Replace the single-agent news scraping with a 3-phase pipeline (Extract → Select → Translate) for better cross-source matching and translation quality.
 
-**Architecture:** Each phase is a separate agent session with a focused task. Phase 1 extracts headlines per source (writes markdown). Phase 2 selects top 5 from English headlines (returns JSON). Phase 3 translates one full article at a time (returns JSON). Code orchestrates the handoffs.
+**Architecture:** Each phase is a separate agent session with a focused task. Phase 1 extracts headlines per source (writes markdown). Phase 2 selects top N from English headlines (returns JSON). Phase 3 translates one full article at a time (returns JSON). Story count is config-driven, not hardcoded.
 
 **Tech Stack:** TypeScript, `@mariozechner/pi-coding-agent` SDK, `@mariozechner/pi-ai`, Zod v4, Vitest
 
@@ -18,16 +18,16 @@
 - Modify: `src/news/schema.ts`
 - Modify: `test/news/schema.test.ts`
 
-Phase 2 returns JSON that our code must validate. Add a Zod schema for the selection output.
+Phase 2 returns JSON that our code must validate. Add a Zod schema factory for the selection output — count is config-driven.
 
 - [ ] **Step 1: Write failing tests for selection schema**
 
 Add to `test/news/schema.test.ts`:
 
 ```typescript
-import { newsArticlesSchema, newsSelectionsSchema } from "../../src/news/schema.js";
+import { newsArticlesSchema, createNewsSelectionsSchema } from "../../src/news/schema.js";
 
-describe("newsSelectionsSchema", () => {
+describe("createNewsSelectionsSchema", () => {
 	const validSelection = {
 		rank: 1,
 		headline_en: "Test headline",
@@ -38,17 +38,19 @@ describe("newsSelectionsSchema", () => {
 		],
 	};
 
-	it("accepts valid array of 5 selections", () => {
-		const selections = Array.from({ length: 5 }, (_, i) => ({
+	it("accepts valid array matching requested count", () => {
+		const schema = createNewsSelectionsSchema(8);
+		const selections = Array.from({ length: 8 }, (_, i) => ({
 			...validSelection,
 			rank: i + 1,
 		}));
-		const result = newsSelectionsSchema.safeParse(selections);
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(true);
 	});
 
 	it("accepts selection with multiple sources", () => {
-		const selections = Array.from({ length: 5 }, (_, i) => ({
+		const schema = createNewsSelectionsSchema(3);
+		const selections = Array.from({ length: 3 }, (_, i) => ({
 			...validSelection,
 			rank: i + 1,
 			sources: [
@@ -56,52 +58,45 @@ describe("newsSelectionsSchema", () => {
 				{ name: "TV9 Kannada", url: "https://tv9kannada.com/article-1", source_id: null },
 			],
 		}));
-		const result = newsSelectionsSchema.safeParse(selections);
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(true);
 	});
 
 	it("accepts selection with null source_id", () => {
-		const selections = Array.from({ length: 5 }, (_, i) => ({
-			...validSelection,
-			rank: i + 1,
-			sources: [{ name: "TV9 Kannada", url: "https://tv9kannada.com/x", source_id: null }],
-		}));
-		const result = newsSelectionsSchema.safeParse(selections);
+		const schema = createNewsSelectionsSchema(1);
+		const selections = [{ ...validSelection, sources: [{ name: "TV9 Kannada", url: "https://tv9kannada.com/x", source_id: null }] }];
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(true);
 	});
 
-	it("rejects array with fewer than 5 selections", () => {
+	it("rejects array not matching requested count", () => {
+		const schema = createNewsSelectionsSchema(5);
 		const selections = [validSelection];
-		const result = newsSelectionsSchema.safeParse(selections);
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(false);
 	});
 
 	it("rejects selection with empty sources array", () => {
-		const selections = Array.from({ length: 5 }, (_, i) => ({
-			...validSelection,
-			rank: i + 1,
-			sources: [],
-		}));
-		const result = newsSelectionsSchema.safeParse(selections);
+		const schema = createNewsSelectionsSchema(1);
+		const selections = [{ ...validSelection, sources: [] }];
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(false);
 	});
 
 	it("rejects selection with missing headline_en", () => {
-		const selections = Array.from({ length: 5 }, (_, i) => ({
-			...validSelection,
-			rank: i + 1,
-			headline_en: "",
-		}));
-		const result = newsSelectionsSchema.safeParse(selections);
+		const schema = createNewsSelectionsSchema(1);
+		const selections = [{ ...validSelection, headline_en: "" }];
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(false);
 	});
 
-	it("rejects rank outside 1-5", () => {
-		const selections = Array.from({ length: 5 }, (_, i) => ({
+	it("rejects rank exceeding requested count", () => {
+		const schema = createNewsSelectionsSchema(3);
+		const selections = Array.from({ length: 3 }, (_, i) => ({
 			...validSelection,
 			rank: i + 10,
 		}));
-		const result = newsSelectionsSchema.safeParse(selections);
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(false);
 	});
 });
@@ -124,14 +119,19 @@ const selectionSourceSchema = z.object({
 });
 
 const newsSelectionSchema = z.object({
-	rank: z.int().min(1).max(5),
+	rank: z.int().min(1),
 	headline_en: z.string().min(1).max(512),
 	summary_en: z.string().min(1).max(2048),
 	category_en: z.string().min(1).max(64),
 	sources: z.array(selectionSourceSchema).min(1),
 });
 
-export const newsSelectionsSchema = z.array(newsSelectionSchema).length(5);
+export function createNewsSelectionsSchema(count: number) {
+	return z.array(
+		newsSelectionSchema.extend({ rank: z.int().min(1).max(count) }),
+	).length(count);
+}
+
 export type NewsSelection = z.infer<typeof newsSelectionSchema>;
 ```
 
@@ -149,22 +149,22 @@ git commit -m "feat: add Zod schema for Phase 2 news selections"
 
 ---
 
-### Task 2: Add Phase 3 single-article schema
+### Task 2: Make article schema config-driven + export single article schema
 
 **Files:**
 - Modify: `src/news/schema.ts`
 - Modify: `test/news/schema.test.ts`
 
-Phase 3 returns a single article (not an array of 5). Add a schema and export for it.
+Phase 3 validates a single article. The existing `newsArticlesSchema` hardcodes `.length(5)` and `rank: max(5)` — make both config-driven.
 
-- [ ] **Step 1: Write failing tests for single article schema**
+- [ ] **Step 1: Write failing tests**
 
 Add to `test/news/schema.test.ts`:
 
 ```typescript
-import { newsArticleSchema, newsArticlesSchema, newsSelectionsSchema } from "../../src/news/schema.js";
+import { createNewsArticleSchema, createNewsArticlesSchema } from "../../src/news/schema.js";
 
-describe("newsArticleSchema (single)", () => {
+describe("createNewsArticleSchema (single, config-driven)", () => {
 	const validArticle = {
 		headline: "Test headline",
 		summary: "Test summary",
@@ -177,13 +177,47 @@ describe("newsArticleSchema (single)", () => {
 		rank: 1,
 	};
 
-	it("accepts a valid single article", () => {
-		const result = newsArticleSchema.safeParse(validArticle);
+	it("accepts a valid single article with rank within maxRank", () => {
+		const schema = createNewsArticleSchema(8);
+		const result = schema.safeParse({ ...validArticle, rank: 8 });
 		expect(result.success).toBe(true);
 	});
 
+	it("rejects rank exceeding maxRank", () => {
+		const schema = createNewsArticleSchema(5);
+		const result = schema.safeParse({ ...validArticle, rank: 6 });
+		expect(result.success).toBe(false);
+	});
+
 	it("rejects article with empty content", () => {
-		const result = newsArticleSchema.safeParse({ ...validArticle, content: "" });
+		const schema = createNewsArticleSchema(10);
+		const result = schema.safeParse({ ...validArticle, content: "" });
+		expect(result.success).toBe(false);
+	});
+});
+
+describe("createNewsArticlesSchema (array, config-driven)", () => {
+	const validArticle = {
+		headline: "Test headline",
+		summary: "Test summary",
+		content: "Full article content here",
+		category: "Crime",
+		source: "PublicTV",
+		source_count: 1,
+		rank: 1,
+	};
+
+	it("accepts array matching requested count", () => {
+		const schema = createNewsArticlesSchema(3);
+		const articles = Array.from({ length: 3 }, (_, i) => ({ ...validArticle, rank: i + 1 }));
+		const result = schema.safeParse(articles);
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects array not matching requested count", () => {
+		const schema = createNewsArticlesSchema(5);
+		const articles = [validArticle];
+		const result = schema.safeParse(articles);
 		expect(result.success).toBe(false);
 	});
 });
@@ -192,28 +226,80 @@ describe("newsArticleSchema (single)", () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run test/news/schema.test.ts`
-Expected: FAIL — `newsArticleSchema` not exported
+Expected: FAIL — `createNewsArticleSchema` / `createNewsArticlesSchema` not exported
 
-- [ ] **Step 3: Export the single article schema**
+- [ ] **Step 3: Refactor schema.ts to config-driven factories**
 
-In `src/news/schema.ts`, change the `newsArticleSchema` from a local `const` to an exported one:
+Rewrite `src/news/schema.ts`:
 
 ```typescript
-export const newsArticleSchema = z.object({
+import { z } from "zod/v4";
+
+// --- Article schemas (Phase 3 + store) ---
+
+const newsArticleBaseSchema = z.object({
+	headline: z.string().min(1).max(512),
+	summary: z.string().min(1).max(2048),
+	content: z.string().min(1),
+	category: z.string().min(1).max(64),
+	source: z.string().min(1).max(64),
+	source_count: z.int().min(1),
+	original_url: z.url().optional(),
+	thumbnail_url: z.url().optional(),
+	rank: z.int().min(1),
+});
+
+export function createNewsArticleSchema(maxRank: number) {
+	return newsArticleBaseSchema.extend({ rank: z.int().min(1).max(maxRank) });
+}
+
+export function createNewsArticlesSchema(count: number) {
+	return z.array(createNewsArticleSchema(count)).length(count);
+}
+
+export type NewsArticle = z.infer<typeof newsArticleBaseSchema>;
+
+// --- Selection schemas (Phase 2) ---
+
+const selectionSourceSchema = z.object({
+	name: z.string().min(1),
+	url: z.url(),
+	source_id: z.string().nullable(),
+});
+
+const newsSelectionBaseSchema = z.object({
+	rank: z.int().min(1),
+	headline_en: z.string().min(1).max(512),
+	summary_en: z.string().min(1).max(2048),
+	category_en: z.string().min(1).max(64),
+	sources: z.array(selectionSourceSchema).min(1),
+});
+
+export function createNewsSelectionsSchema(count: number) {
+	return z.array(
+		newsSelectionBaseSchema.extend({ rank: z.int().min(1).max(count) }),
+	).length(count);
+}
+
+export type NewsSelection = z.infer<typeof newsSelectionBaseSchema>;
 ```
 
-No logic changes — just add the `export` keyword to the existing schema.
+- [ ] **Step 4: Update existing tests that use old exports**
 
-- [ ] **Step 4: Run tests to verify they pass**
+In `test/news/schema.test.ts`, update the existing `newsArticlesSchema` tests to use `createNewsArticlesSchema(5)` instead. In `test/news/store.test.ts` and `test/extractor/news-updater.test.ts`, update any imports if needed (the `NewsArticle` type is unchanged).
 
-Run: `npx vitest run test/news/schema.test.ts`
+In `src/news/store.ts` — no changes needed (uses `NewsArticle` type only, no schema validation).
+
+- [ ] **Step 5: Run full test suite**
+
+Run: `npx vitest run`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/news/schema.ts test/news/schema.test.ts
-git commit -m "feat: export single article schema for Phase 3 validation"
+git commit -m "feat: config-driven article + selection schemas, export single article schema"
 ```
 
 ---
@@ -236,11 +322,12 @@ import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
 import { logger } from "../config/logger.js";
-import { type NewsArticle, type NewsSelection, newsArticleSchema, newsSelectionsSchema } from "./schema.js";
+import { type NewsArticle, type NewsSelection, createNewsArticleSchema, createNewsSelectionsSchema } from "./schema.js";
 
 const MAX_VALIDATION_RETRIES = 3;
 const MODEL_ID = "claude-sonnet-4-6";
 const THINKING_LEVEL = "high";
+const STORY_COUNT = 8;
 
 // --- Shared helpers ---
 
@@ -358,8 +445,8 @@ async function runPhase1(playbook: string, source: string, city: string, today: 
 
 // --- Phase 2: Select ---
 
-function buildPhase2Prompt(city: string, today: string, sourceFiles: string[]): string {
-	return `You are selecting the top 5 ${city} news stories for ${today}.
+function buildPhase2Prompt(city: string, today: string, sourceFiles: string[], count: number): string {
+	return `You are selecting the top ${count} ${city} news stories for ${today}.
 
 ## Task
 Your working directory contains markdown files — one per news source. Each file lists translated English headlines and summaries scraped from that source.
@@ -369,7 +456,10 @@ Files to read: ${sourceFiles.map((f) => `\`${f}\``).join(", ")}
 ### Steps
 1. Read all source files.
 2. **Cross-source matching:** Compare all headlines and summaries across sources. Two articles match if they describe the SAME EVENT, even if worded differently. List every match you find.
-3. **Pick top 5:** Cross-source stories (appearing on multiple sources) rank higher. Among equal stories, prefer category diversity.
+3. **Pick top ${count}:** Rank by these criteria in order:
+   - Cross-source stories (appearing on multiple sources) rank higher
+   - Stories with higher public impact or importance rank higher (public safety, major policy, infrastructure > minor incidents)
+   - Prefer category diversity — avoid clustering multiple stories from the same category when others are available
 
 ## Output
 Your FINAL message must be ONLY a JSON array — no markdown fences, no explanation:
@@ -387,12 +477,12 @@ Your FINAL message must be ONLY a JSON array — no markdown fences, no explanat
   }
 ]
 
-- Exactly 5 items, ranked 1-5 (1 = most important)
+- Exactly ${count} items, ranked 1-${count} (1 = most important)
 - sources array: every source that covered this story
 - source_id: the ID from the source file, or null if listed as "none"
 - For source name, use the exact filename without .md extension
 
-Read the files and select the top 5 now.`;
+Read the files and select the top ${count} now.`;
 }
 
 async function runPhase2(
@@ -400,6 +490,7 @@ async function runPhase2(
 	today: string,
 	cwd: string,
 	sourceFiles: string[],
+	count: number,
 ): Promise<NewsSelection[]> {
 	const log = logger.child({ module: "news-phase2", city });
 	log.info({ cwd, sourceFiles }, "Phase 2: starting selection");
@@ -408,7 +499,7 @@ async function runPhase2(
 	const capture = captureResponseText(session);
 
 	try {
-		await session.prompt(buildPhase2Prompt(city, today, sourceFiles));
+		await session.prompt(buildPhase2Prompt(city, today, sourceFiles, count));
 		capture.stop();
 
 		const rawJson = extractJson(capture.getText());
@@ -416,7 +507,7 @@ async function runPhase2(
 			throw new Error("Phase 2: no JSON array found in response");
 		}
 
-		const parsed = newsSelectionsSchema.safeParse(JSON.parse(rawJson));
+		const parsed = createNewsSelectionsSchema(count).safeParse(JSON.parse(rawJson));
 		if (!parsed.success) {
 			throw new Error(`Phase 2: validation failed: ${JSON.stringify(parsed.error.issues)}`);
 		}
@@ -497,7 +588,8 @@ async function runPhase3(playbook: string, selection: NewsSelection): Promise<Ne
 			throw new Error(`Phase 3 rank ${selection.rank}: no JSON found in response`);
 		}
 
-		let parsed = newsArticleSchema.safeParse(JSON.parse(rawJson));
+		const articleSchema = createNewsArticleSchema(STORY_COUNT);
+		let parsed = articleSchema.safeParse(JSON.parse(rawJson));
 
 		if (parsed.success) {
 			log.info("Phase 3: validation passed on first attempt");
@@ -518,7 +610,7 @@ async function runPhase3(playbook: string, selection: NewsSelection): Promise<Ne
 			const retryJson = extractJson(retryCap.getText());
 			if (!retryJson) continue;
 
-			parsed = newsArticleSchema.safeParse(JSON.parse(retryJson));
+			parsed = articleSchema.safeParse(JSON.parse(retryJson));
 			if (parsed.success) {
 				log.info({ attempt }, "Phase 3: validation passed after retry");
 				return parsed.data;
@@ -553,9 +645,9 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 		sourceFiles.push(`stories-${source}.md`);
 	}
 
-	// Phase 2: Select top 5
-	log.info("Phase 2: selecting top 5 stories");
-	const selections = await runPhase2(city, today, pipelineCwd, sourceFiles);
+	// Phase 2: Select top stories
+	log.info({ count: STORY_COUNT }, "Phase 2: selecting top stories");
+	const selections = await runPhase2(city, today, pipelineCwd, sourceFiles, STORY_COUNT);
 
 	// Phase 3: Translate each article
 	const articles: NewsArticle[] = [];
@@ -622,12 +714,12 @@ Run the full pipeline end-to-end to verify articles land in Appwrite.
 - [ ] **Step 1: Run the E2E test**
 
 Run: `npx tsx e2e-news.ts`
-Expected: Logs show Phase 1 (×2), Phase 2 (×1), Phase 3 (×5) completing. 5 articles stored.
+Expected: Logs show Phase 1 (×2), Phase 2 (×1), Phase 3 (×8) completing. 8 articles stored.
 
 - [ ] **Step 2: Verify results in Appwrite**
 
 Run: `npx tsx e2e-verify.ts`
-Expected: 5 articles with English headlines, thumbnails, valid categories. Check for cross-source matches (source_count: 2) if applicable.
+Expected: 8 articles with English headlines, thumbnails, valid categories. Check for cross-source matches (source_count: 2) if applicable.
 
 - [ ] **Step 3: Check session files**
 
@@ -640,9 +732,9 @@ Verify Phase 1 sessions show curl + write, Phase 2 shows read + analysis, Phase 
 
 - [ ] **Step 4: Review Phase 1 markdown outputs**
 
-Find the Phase 1 temp dirs and inspect `stories.md` files:
+Find the Phase 1 temp dirs and inspect stories files:
 ```bash
-find /var/folders -name "stories.md" -newer /tmp 2>/dev/null
+find /var/folders -name "stories-*.md" -newer /tmp 2>/dev/null
 ```
 
 Verify all headlines are translated, IDs present, format matches spec.

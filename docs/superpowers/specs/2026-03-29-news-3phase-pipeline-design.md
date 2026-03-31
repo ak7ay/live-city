@@ -4,7 +4,7 @@
 
 Replaces the current single-agent news scraping approach with a 3-phase pipeline. Each phase has a single focused task, improving translation quality, cross-source matching accuracy, and article content quality.
 
-**Total agent calls:** 2 (Phase 1) + 1 (Phase 2) + 5 (Phase 3) = 8 sequential calls.
+**Total agent calls:** 2 (Phase 1) + 1 (Phase 2) + N (Phase 3) = variable. Story count is config-driven.
 
 ## Problem with Current Approach
 
@@ -77,7 +77,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 **Agent task:**
 1. Read all source files in workspace
 2. Cross-source match: compare English headlines/summaries, identify stories appearing on multiple sources
-3. Pick top 5: cross-source stories rank higher, prefer category diversity
+3. Pick top N stories (count passed in prompt): cross-source stories rank higher, then by impact/importance, then category diversity as tiebreaker
 4. Return JSON array as response text
 
 **Output format** (JSON response text):
@@ -100,7 +100,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 
 ## Phase 3: Translate
 
-**Runs:** Once per selected article (sequential). 5 calls.
+**Runs:** Once per selected article (sequential). N calls matching Phase 2 output count.
 
 **Input:**
 - Full playbook (agent uses relevant source section for fetching)
@@ -129,7 +129,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 }
 ```
 
-**Code validates** each article against Zod schema. On validation failure, sends errors back to same session for retry (up to 3 attempts, same as current).
+**Code validates** each article against Zod schema (rank max and array length are config-driven, not hardcoded). On validation failure, sends errors back to same session for retry (up to 3 attempts, same as current).
 
 ## Code Changes
 
@@ -165,7 +165,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
    c. Capture JSON response
    d. Validate against Zod schema (retry up to 3 times)
    e. Collect validated article
-4. Return array of 5 NewsArticle objects
+4. Return array of NewsArticle objects
 ```
 
 ## Error Handling
