@@ -69,6 +69,43 @@ function extractJson(text: string): string | null {
 	return objectMatch ? objectMatch[0] : null;
 }
 
+function tryParseJson(
+	text: string,
+	schema: { safeParse: (v: unknown) => any },
+): { data: any; error: null } | { data: null; error: string } {
+	const raw = extractJson(text);
+	if (!raw) return { data: null, error: "No JSON object found in response" };
+	try {
+		const obj = JSON.parse(raw);
+		const result = schema.safeParse(obj);
+		if (result.success) return { data: result.data, error: null };
+		return { data: null, error: JSON.stringify(result.error.issues, null, 2) };
+	} catch (e) {
+		return { data: null, error: e instanceof Error ? e.message : String(e) };
+	}
+}
+
+async function retryValidation(session: any, text: string, schema: Parameters<typeof tryParseJson>[1], log: any) {
+	let result = tryParseJson(text, schema);
+	if (result.data !== null) return result.data;
+
+	for (let attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
+		log.info({ attempt, error: result.error }, "Validation failed, retrying");
+		const retryCapture = captureResponseText(session);
+		await session.prompt(
+			`Your JSON had errors:\n${result.error}\n\nFix and return only the corrected JSON object. No markdown fences, no explanation.`,
+		);
+		retryCapture.stop();
+		result = tryParseJson(retryCapture.getText(), schema);
+		if (result.data !== null) {
+			log.info({ attempt }, "Validation passed after retry");
+			return result.data;
+		}
+	}
+
+	throw new Error(`Validation failed after ${MAX_VALIDATION_RETRIES} retries: ${result.error}`);
+}
+
 // ── Phase 1: Extract ─────────────────────────────────────────────────
 
 async function runPhase1(source: string, city: string, playbook: string, today: string, cwd: string): Promise<void> {
@@ -165,16 +202,9 @@ Your FINAL message must be ONLY a JSON array with exactly ${STORY_COUNT} objects
 - For cross-source stories: include ALL source entries`);
 		capture.stop();
 
-		const rawJson = extractJson(capture.getText());
-		if (!rawJson) throw new Error("No JSON found in phase 2 response");
-
-		const parsed = selectionsSchema.safeParse(JSON.parse(rawJson));
-		if (parsed.success) {
-			log.info("Phase 2 validation passed");
-			return parsed.data;
-		}
-
-		throw new Error(`Phase 2 validation failed: ${JSON.stringify(parsed.error.issues)}`);
+		const selections: NewsSelection[] = await retryValidation(session, capture.getText(), selectionsSchema, log);
+		log.info("Phase 2 validation passed");
+		return selections;
 	} finally {
 		session.dispose();
 	}
@@ -230,50 +260,9 @@ Your FINAL message must be ONLY a JSON object, no markdown fences, no explanatio
 }`);
 		capture.stop();
 
-		let lastError = "";
-		const tryParse = (text: string) => {
-			const raw = extractJson(text);
-			if (!raw) {
-				lastError = "No JSON object found in response";
-				return null;
-			}
-			try {
-				const obj = JSON.parse(raw);
-				const result = articleSchema.safeParse(obj);
-				if (result.success) return result.data;
-				lastError = JSON.stringify(result.error.issues, null, 2);
-			} catch (e) {
-				lastError = e instanceof Error ? e.message : String(e);
-			}
-			return null;
-		};
-
-		const firstResult = tryParse(capture.getText());
-		if (firstResult) {
-			log.info("Phase 3 validation passed on first attempt");
-			return firstResult;
-		}
-
-		// Retry loop on validation/parse failure
-		for (let attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
-			log.info({ attempt, error: lastError }, "Phase 3 validation failed, retrying");
-
-			const retryCapture = captureResponseText(session);
-			await session.prompt(
-				`Your JSON had errors:\n${lastError}\n\nFix and return only the corrected JSON object. No markdown fences, no explanation.`,
-			);
-			retryCapture.stop();
-
-			const retryResult = tryParse(retryCapture.getText());
-			if (retryResult) {
-				log.info({ attempt }, "Phase 3 validation passed after retry");
-				return retryResult;
-			}
-		}
-
-		throw new Error(
-			`Phase 3 failed for rank ${selection.rank} after ${MAX_VALIDATION_RETRIES} retries: ${lastError}`,
-		);
+		const article: NewsArticle = await retryValidation(session, capture.getText(), articleSchema, log);
+		log.info("Phase 3 validation passed");
+		return article;
 	} finally {
 		session.dispose();
 	}
