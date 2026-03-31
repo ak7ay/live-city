@@ -10,7 +10,7 @@ import { createNewsArticleSchema, createNewsSelectionsSchema, type NewsArticle, 
 
 const MAX_VALIDATION_RETRIES = 3;
 const MODEL_ID = "claude-sonnet-4-6";
-const THINKING_LEVEL = "high";
+const THINKING_LEVEL = "medium";
 const STORY_COUNT = 8;
 const SOURCES = ["publictv", "tv9kannada"] as const;
 
@@ -205,7 +205,7 @@ ${selectionJson}
 
 ## Instructions
 
-1. Fetch the FULL article content from the source(s) listed above. Use bash with curl.
+1. Fetch the FULL article content from the source(s) listed above.
    - Use the playbook's source-specific instructions for fetching full articles.
    - If multiple sources are listed, fetch from BOTH and pick the richer/more complete version.
 2. Extract the thumbnail URL following the playbook's source-specific instructions.
