@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
@@ -70,6 +70,7 @@ function extractJson(text: string): string | null {
 
 async function runPhase1(source: string, city: string, playbook: string, today: string, cwd: string): Promise<void> {
 	const log = logger.child({ module: "news-agent", phase: 1, source });
+	const outputFile = `stories-${source}.md`;
 	log.info("Starting phase 1 extraction");
 
 	const { session } = await createPhaseSession(cwd, `You are a ${city} news extractor for ${source}.`);
@@ -102,7 +103,12 @@ ${playbook}
 Include EVERY story from the listing. Do not skip any.
 Today's date: ${today}`);
 		capture.stop();
-		log.info("Phase 1 complete for source");
+
+		const outputPath = join(cwd, outputFile);
+		if (!existsSync(outputPath)) {
+			throw new Error(`Phase 1: agent did not write ${outputFile}`);
+		}
+		log.info({ file: outputFile }, "Phase 1 complete for source");
 	} finally {
 		session.dispose();
 	}
@@ -173,7 +179,8 @@ Your FINAL message must be ONLY a JSON array with exactly ${STORY_COUNT} objects
 
 // ── Phase 3: Translate ───────────────────────────────────────────────
 
-async function runPhase3(selection: NewsSelection, city: string, playbook: string, cwd: string): Promise<NewsArticle> {
+async function runPhase3(selection: NewsSelection, city: string, playbook: string): Promise<NewsArticle> {
+	const cwd = createWorkspace(`phase3-rank${selection.rank}-`);
 	const log = logger.child({ module: "news-agent", phase: 3, rank: selection.rank });
 	log.info({ headline: selection.headline_en }, "Starting phase 3 translation");
 
@@ -296,7 +303,7 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 	// 5. Phase 3: Translate — sequential per article
 	const articles: NewsArticle[] = [];
 	for (const selection of selections) {
-		const article = await runPhase3(selection, city, playbook, cwd);
+		const article = await runPhase3(selection, city, playbook);
 		articles.push(article);
 	}
 	log.info({ count: articles.length }, "Phase 3 complete — all articles translated");
