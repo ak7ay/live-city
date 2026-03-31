@@ -306,7 +306,7 @@ function buildPhase1Prompt(playbook: string, source: string, city: string, today
 ${playbook}
 
 ## Task
-1. Use bash to fetch the listing from the ${source} source (see playbook for endpoint and method).
+1. Fetch the listing from the ${source} source (see playbook for endpoint and method).
 2. Translate EVERY headline and summary/excerpt to English.
 3. Write the results to a file called \`stories.md\` in your working directory.
 
@@ -391,7 +391,7 @@ Your FINAL message must be ONLY a JSON array — no markdown fences, no explanat
 - source_id: the ID from the source file, or null if listed as "none"
 - For source name, use the exact filename without .md extension
 
-Read the files and begin.`;
+Read the files and select the top 5 now.`;
 }
 
 async function runPhase2(
@@ -485,7 +485,7 @@ Your FINAL message must be ONLY a JSON object — no markdown fences, no explana
   "rank": ${selection.rank}
 }
 
-Fetch the article now.`;
+Fetch the article and translate it now.`;
 }
 
 async function runPhase3(playbook: string, selection: NewsSelection): Promise<NewsArticle> {
