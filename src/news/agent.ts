@@ -36,6 +36,7 @@ async function createPhaseSession(cwd: string, systemSuffix: string) {
 
 	const sessionManager = SessionManager.create(cwd);
 	const { session } = await createAgentSession({
+		cwd,
 		model: getAgentModel(),
 		thinkingLevel: THINKING_LEVEL,
 		resourceLoader: loader,
