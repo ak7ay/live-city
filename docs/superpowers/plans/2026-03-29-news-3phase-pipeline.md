@@ -250,7 +250,7 @@ function getAgentModel() {
 	return model;
 }
 
-function createAgentWorkspace(label: string): string {
+function createWorkspace(label: string): string {
 	return mkdtempSync(join(tmpdir(), `news-${label}-`));
 }
 
@@ -300,6 +300,7 @@ const SOURCES = ["publictv", "tv9kannada"] as const;
 // --- Phase 1: Extract ---
 
 function buildPhase1Prompt(playbook: string, source: string, city: string, today: string): string {
+	const outputFile = `stories-${source}.md`;
 	return `You are extracting news headlines from the ${source} source for ${city}.
 
 ## Playbook
@@ -308,9 +309,9 @@ ${playbook}
 ## Task
 1. Fetch the listing from the ${source} source (see playbook for endpoint and method).
 2. Translate EVERY headline and summary/excerpt to English.
-3. Write the results to a file called \`stories.md\` in your working directory.
+3. Write the results to a file called \`${outputFile}\` in your working directory.
 
-## Output format for stories.md
+## Output format for ${outputFile}
 
 \`\`\`markdown
 # ${source} — ${city} Stories (${today})
@@ -329,9 +330,9 @@ Include ALL stories from the listing, not just a selection. Translate accurately
 Write the file now.`;
 }
 
-async function runPhase1(playbook: string, source: string, city: string, today: string): Promise<string> {
+async function runPhase1(playbook: string, source: string, city: string, today: string, cwd: string): Promise<string> {
 	const log = logger.child({ module: "news-phase1", city, source });
-	const cwd = createAgentWorkspace(`phase1-${source}-${city}-`);
+	const outputFile = `stories-${source}.md`;
 	log.info({ cwd }, "Phase 1: starting extraction");
 
 	const session = await createPhaseSession(cwd, `You extract ${city} news headlines from ${source}.`);
@@ -341,13 +342,13 @@ async function runPhase1(playbook: string, source: string, city: string, today: 
 		await session.prompt(buildPhase1Prompt(playbook, source, city, today));
 		capture.stop();
 
-		const storiesPath = join(cwd, "stories.md");
+		const storiesPath = join(cwd, outputFile);
 		if (!existsSync(storiesPath)) {
-			throw new Error(`Phase 1: agent did not write stories.md for ${source}`);
+			throw new Error(`Phase 1: agent did not write ${outputFile}`);
 		}
 
 		const content = readFileSync(storiesPath, "utf-8");
-		log.info({ chars: content.length }, "Phase 1: stories.md read successfully");
+		log.info({ file: outputFile, chars: content.length }, "Phase 1: file read successfully");
 		return content;
 	} finally {
 		capture.stop();
@@ -361,7 +362,7 @@ function buildPhase2Prompt(city: string, today: string, sourceFiles: string[]): 
 	return `You are selecting the top 5 ${city} news stories for ${today}.
 
 ## Task
-Your working directory contains markdown files — one per news source. Each file lists translated English headlines and summaries.
+Your working directory contains markdown files — one per news source. Each file lists translated English headlines and summaries scraped from that source.
 
 Files to read: ${sourceFiles.map((f) => `\`${f}\``).join(", ")}
 
@@ -397,19 +398,10 @@ Read the files and select the top 5 now.`;
 async function runPhase2(
 	city: string,
 	today: string,
-	sourceMarkdowns: Map<string, string>,
+	cwd: string,
+	sourceFiles: string[],
 ): Promise<NewsSelection[]> {
 	const log = logger.child({ module: "news-phase2", city });
-	const cwd = createAgentWorkspace(`phase2-${city}-`);
-
-	// Write Phase 1 outputs into Phase 2 workspace
-	const sourceFiles: string[] = [];
-	for (const [source, markdown] of sourceMarkdowns) {
-		const filename = `${source}.md`;
-		writeFileSync(join(cwd, filename), markdown);
-		sourceFiles.push(filename);
-	}
-
 	log.info({ cwd, sourceFiles }, "Phase 2: starting selection");
 
 	const session = await createPhaseSession(cwd, `You select the top ${city} news stories.`);
@@ -490,7 +482,7 @@ Fetch the article and translate it now.`;
 
 async function runPhase3(playbook: string, selection: NewsSelection): Promise<NewsArticle> {
 	const log = logger.child({ module: "news-phase3", rank: selection.rank });
-	const cwd = createAgentWorkspace(`phase3-rank${selection.rank}-`);
+	const cwd = createWorkspace(`phase3-rank${selection.rank}-`);
 	log.info({ cwd, headline: selection.headline_en }, "Phase 3: starting translation");
 
 	const session = await createPhaseSession(cwd, "You translate news articles to English.");
@@ -550,17 +542,20 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 	const playbook = readFileSync(playbookPath, "utf-8");
 	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
+	// Shared workspace for Phase 1 + Phase 2
+	const pipelineCwd = createWorkspace(`news-${city}-`);
+
 	// Phase 1: Extract headlines from each source
-	const sourceMarkdowns = new Map<string, string>();
+	const sourceFiles: string[] = [];
 	for (const source of SOURCES) {
 		log.info({ source }, "Phase 1: extracting headlines");
-		const markdown = await runPhase1(playbook, source, city, today);
-		sourceMarkdowns.set(source, markdown);
+		await runPhase1(playbook, source, city, today, pipelineCwd);
+		sourceFiles.push(`stories-${source}.md`);
 	}
 
 	// Phase 2: Select top 5
 	log.info("Phase 2: selecting top 5 stories");
-	const selections = await runPhase2(city, today, sourceMarkdowns);
+	const selections = await runPhase2(city, today, pipelineCwd, sourceFiles);
 
 	// Phase 3: Translate each article
 	const articles: NewsArticle[] = [];

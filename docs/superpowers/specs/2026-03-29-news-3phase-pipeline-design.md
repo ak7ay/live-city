@@ -46,7 +46,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 2. Translate every headline and summary to English
 3. Write structured markdown to `stories.md` in workspace
 
-**Output format** (`stories.md`):
+**Output format** (`stories-{source}.md` e.g. `stories-publictv.md`):
 ```markdown
 # PublicTV — Bengaluru Stories (2026-03-29)
 
@@ -63,7 +63,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 - **ID:** 1447090
 ```
 
-**After agent finishes:** Code reads `{agentCwd}/stories.md` and writes it into Phase 2's workspace as `{source_name}.md` (e.g. `publictv.md`, `tv9kannada.md`).
+**Shared workspace:** Phase 1 and Phase 2 share the same temp directory. Phase 1 writes `stories-publictv.md`, `stories-tv9kannada.md` directly. Phase 2 reads them from the same location. No file copying needed.
 
 **ID field:** For PublicTV, this is the WordPress post ID (needed for Phase 3 API call). For TV9 Kannada, this is null (full content is in RSS, re-fetched by URL).
 
@@ -72,7 +72,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 **Runs:** Once.
 
 **Input:**
-- Source markdown files in workspace (written by code from Phase 1 outputs)
+- Source markdown files already in shared workspace from Phase 1 (e.g. `stories-publictv.md`, `stories-tv9kannada.md`)
 
 **Agent task:**
 1. Read all source files in workspace
@@ -144,23 +144,21 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 
 ### Agent session setup (shared across phases)
 - Model: `claude-sonnet-4-6`, thinking: `high`
-- Each phase gets its own temp workspace (`mkdtempSync`)
+- Phase 1 + Phase 2 share one temp workspace; Phase 3 gets its own per article
 - Each phase gets its own persisted session (`SessionManager.create`)
 - Skills override: empty (no skills needed)
 - Each phase gets a fresh agent session — no session reuse across phases
 
 ### Orchestration flow in `fetchNewsViaAgent`
 ```
-1. For each source in playbook:
-   a. Create Phase 1 agent session
+1. Create shared workspace for pipeline
+2. For each source in playbook:
+   a. Create Phase 1 agent session (shared workspace)
    b. Run extraction prompt
-   c. Read stories.md from agent workspace
-   d. Store markdown string
-2. Create Phase 2 agent workspace
-   a. Write all Phase 1 markdowns as {source}.md files
-   b. Create Phase 2 agent session
-   c. Run selection prompt
-   d. Capture JSON response, parse selections
+   c. Agent writes stories-{source}.md to workspace
+3. Create Phase 2 agent session (same shared workspace)
+   a. Run selection prompt (references stories-*.md files)
+   b. Capture JSON response, parse selections
 3. For each of the 5 selections:
    a. Create Phase 3 agent session
    b. Run translation prompt with article details + playbook
