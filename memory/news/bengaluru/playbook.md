@@ -36,11 +36,20 @@ GET https://publictv.in/wp-json/wp/v2/media/{featured_media_id}?_fields=source_u
 
 **Listing (headlines only):**
 ```
-curl -s "https://tv9kannada.com/karnataka/bengaluru/feed" | python3 -c "import sys,re; print(re.sub(r'<content:encoded>.*?</content:encoded>', '', sys.stdin.read(), flags=re.DOTALL))"
+curl -s "https://tv9kannada.com/karnataka/bengaluru/feed" | python3 -c "
+import sys,re
+data = sys.stdin.read()
+cleaned = re.sub(r'<content:encoded>.*?</content:encoded>', '', data, flags=re.DOTALL)
+items = list(re.finditer(r'<item>', cleaned))
+if len(items) > 20:
+    cut = cleaned.find('</item>', items[19].end()) + len('</item>')
+    cleaned = cleaned[:cut] + '</channel></rss>'
+print(cleaned)
+"
 ```
-The raw RSS feed is ~400KB because it includes full article HTML in `<content:encoded>`. The command above strips that, keeping only titles, descriptions, links, and categories (~70KB).
+The raw RSS feed is ~400KB (60 items with full article HTML). The command above strips `content:encoded` and limits to 20 items (~20KB).
 
-**Full article content (when needed later):**
+**Full article content:**
 ```
 GET https://tv9kannada.com/karnataka/bengaluru/feed
 ```
