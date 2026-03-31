@@ -143,7 +143,7 @@ Phase 1 (per-source)     Phase 2 (single)       Phase 3 (per-article)
 - `memory/news/bengaluru/playbook.md` — No changes needed
 
 ### Agent session setup (shared across phases)
-- Model: `claude-sonnet-4-20250514`, thinking: `medium`
+- Model: `claude-sonnet-4-6`, thinking: `high`
 - Each phase gets its own temp workspace (`mkdtempSync`)
 - Each phase gets its own persisted session (`SessionManager.create`)
 - Skills override: empty (no skills needed)
