@@ -4,173 +4,303 @@ import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
 import { logger } from "../config/logger.js";
-import { createNewsArticlesSchema, type NewsArticle } from "./schema.js";
+import { createNewsArticleSchema, createNewsSelectionsSchema, type NewsArticle, type NewsSelection } from "./schema.js";
 
-const newsArticlesSchema = createNewsArticlesSchema(5);
+// ── Constants ────────────────────────────────────────────────────────
 
 const MAX_VALIDATION_RETRIES = 3;
+const MODEL_ID = "claude-sonnet-4-6";
+const THINKING_LEVEL = "high";
+const STORY_COUNT = 8;
+const SOURCES = ["publictv", "tv9kannada"] as const;
 
-function buildUserPrompt(playbook: string, city: string, today: string): string {
-	return `Fetch today's top 5 ${city} news stories, translate them to English, and return structured JSON.
+// ── Shared helpers ───────────────────────────────────────────────────
 
-## Playbook
-The playbook below contains city-specific details: sources, API endpoints, content quirks, and known issues. Follow it for all fetching and content cleanup.
-
-${playbook}
-
-## Steps
-
-### 1. Fetch all sources
-Use bash tool to fetch listings from ALL sources listed in the playbook.
-
-### 2. Write all scraped stories to a file
-Write a file listing EVERY story from EVERY source with: source name, translated title, 1-line translated summary. Group by source. This is your working dataset — do not skip this step.
-
-### 3. Cross-source matching
-Read back the file. For every story, check if the same event appears in another source. Two articles match if they describe the same event, even if worded differently. Write the match results to a file: matches with source_count = 2, and single-source stories with source_count = 1.
-
-### 4. Pick the top 5
-- **Cross-source stories (source_count: 2) MUST rank above single-source stories.** If there are 4 cross-source matches, at least 4 of the top 5 must be cross-source.
-- Among stories of equal source_count, prefer diversity of categories. Avoid picking multiple stories from the same category if others are available.
-
-### 5. Get full content + thumbnails
-For each of the 5 winners, fetch full article content and thumbnail following the source-specific instructions in the playbook. Every article must have a thumbnail — all sources provide images.
-
-### 6. Translate
-- Translate all text to natural, readable English
-- Headlines: concise, newspaper-style
-- Summary: 1-2 sentences capturing the key facts
-- Content: full article body as clean markdown (## for subheadings, paragraphs, no HTML)
-- Category: translate the source's category tag to English
-
-## Output
-
-Your FINAL message must be ONLY a JSON array with exactly 5 objects, no markdown fences, no explanation:
-
-[
-  {
-    "headline": "English headline",
-    "summary": "1-2 sentence English summary",
-    "content": "Full article body in English markdown format",
-    "category": "English category translated from source",
-    "source": "comma-separated source identifiers if on multiple sources",
-    "source_count": 1,
-    "original_url": "https://...",
-    "thumbnail_url": "https://...",
-    "rank": 1
-  }
-]
-
-- source_count: number of sources the story appeared on
-- rank: 1 = most important, 5 = least important
-- For cross-source stories: combine best details from all versions
-
-Today's date: ${today}
-City: ${city}
-
-Start by fetching all sources now.`;
+function getAgentModel() {
+	const model = getModel("anthropic", MODEL_ID);
+	if (!model) throw new Error(`Model not found: anthropic/${MODEL_ID}`);
+	return model;
 }
 
-function extractJson(text: string): string | null {
-	// Match the outermost [ ... ] in the response
-	const match = text.match(/\[[\s\S]*\]/);
-	return match ? match[0] : null;
+function createWorkspace(label: string): string {
+	return mkdtempSync(join(tmpdir(), `news-${label}-`));
 }
 
-export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
-	const log = logger.child({ module: "news-agent", city });
-
-	const playbookPath = join("memory", "news", city, "playbook.md");
-	const playbook = readFileSync(playbookPath, "utf-8");
-
-	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-
-	const model = getModel("anthropic", "claude-sonnet-4-20250514");
-	if (!model) {
-		throw new Error("Model not found: anthropic/claude-sonnet-4-20250514");
-	}
-
-	const agentCwd = mkdtempSync(join(tmpdir(), `news-agent-${city}-`));
-	log.info({ cwd: agentCwd }, "Created agent workspace");
-
+async function createPhaseSession(cwd: string, systemSuffix: string) {
 	const loader = new DefaultResourceLoader({
-		cwd: agentCwd,
+		cwd,
 		skillsOverride: () => ({ skills: [], diagnostics: [] }),
-		appendSystemPrompt: `You are a ${city} news curator.`,
+		appendSystemPrompt: systemSuffix,
 	});
 	await loader.reload();
 
-	const sessionManager = SessionManager.create(agentCwd);
+	const sessionManager = SessionManager.create(cwd);
 	const { session } = await createAgentSession({
-		model,
-		thinkingLevel: "medium",
+		model: getAgentModel(),
+		thinkingLevel: THINKING_LEVEL,
 		resourceLoader: loader,
 		sessionManager,
 	});
 
-	log.info({ sessionDir: sessionManager.getCwd() }, "Agent session persisted");
+	return { session, sessionManager };
+}
 
-	let fullResponse = "";
-	let unsubscribe: (() => void) | undefined;
-
-	const captureResponse = () => {
-		unsubscribe?.();
-		fullResponse = "";
-		unsubscribe = session.subscribe((event) => {
-			if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-				fullResponse += event.assistantMessageEvent.delta;
-			}
-		});
+function captureResponseText(session: { subscribe: (cb: (event: any) => void) => () => void }) {
+	let text = "";
+	const unsubscribe = session.subscribe((event: any) => {
+		if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+			text += event.assistantMessageEvent.delta;
+		}
+	});
+	return {
+		getText: () => text,
+		stop: () => unsubscribe(),
 	};
+}
 
+function extractJson(text: string): string | null {
+	// Try array first, then object
+	const arrayMatch = text.match(/\[[\s\S]*\]/);
+	if (arrayMatch) return arrayMatch[0];
+	const objectMatch = text.match(/\{[\s\S]*\}/);
+	return objectMatch ? objectMatch[0] : null;
+}
+
+// ── Phase 1: Extract ─────────────────────────────────────────────────
+
+async function runPhase1(source: string, city: string, playbook: string, today: string, cwd: string): Promise<void> {
+	const log = logger.child({ module: "news-agent", phase: 1, source });
+	log.info("Starting phase 1 extraction");
+
+	const { session } = await createPhaseSession(cwd, `You are a ${city} news extractor for ${source}.`);
 	try {
-		log.info("Starting agent session for news fetch");
+		const capture = captureResponseText(session);
+		await session.prompt(`You are extracting today's news stories from the "${source}" source for ${city}.
 
-		captureResponse();
-		const userPrompt = buildUserPrompt(playbook, city, today);
-		await session.prompt(userPrompt);
+## Playbook
+${playbook}
 
-		const rawJson = extractJson(fullResponse);
-		if (!rawJson) {
-			throw new Error("No JSON array found in agent response");
+## Instructions
+
+1. Use the playbook above to fetch the LISTING from the "${source}" source only. Use bash with curl.
+2. Translate ALL headlines and summaries to English.
+3. Write a file called \`stories-${source}.md\` in the current directory with this exact format:
+
+\`\`\`
+# ${source} — ${city} Stories (${today})
+
+## 1. [English headline]
+- **Category:** [translated category]
+- **Summary:** [1-line English summary]
+- **URL:** [article URL]
+- **ID:** [source-specific ID or "none"]
+
+## 2. [English headline]
+...
+\`\`\`
+
+Include EVERY story from the listing. Do not skip any.
+Today's date: ${today}`);
+		capture.stop();
+		log.info("Phase 1 complete for source");
+	} finally {
+		session.dispose();
+	}
+}
+
+// ── Phase 2: Select ──────────────────────────────────────────────────
+
+async function runPhase2(city: string, sourceFiles: string[], cwd: string): Promise<NewsSelection[]> {
+	const log = logger.child({ module: "news-agent", phase: 2 });
+	log.info("Starting phase 2 selection");
+
+	const selectionsSchema = createNewsSelectionsSchema(STORY_COUNT);
+
+	const { session } = await createPhaseSession(cwd, `You are a ${city} news editor selecting the top stories.`);
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(`You are selecting the top ${STORY_COUNT} news stories for ${city} from multiple sources.
+
+## Source Files
+The following files are in the current directory. Read them all first:
+${sourceFiles.map((f) => `- ${f}`).join("\n")}
+
+## Steps
+
+1. **Read** all source files listed above using the read tool.
+2. **Cross-source match**: Identify stories that appear in multiple sources (same event, even if worded differently). Mark each story's source_count.
+3. **Pick the top ${STORY_COUNT}** using these ranking criteria:
+   - Cross-source stories (appearing in 2+ sources) rank HIGHER than single-source stories
+   - Among equal source_count, prefer stories with higher public impact/importance
+   - Use category diversity as a tiebreaker — avoid clustering same-category stories
+
+## Output
+
+Your FINAL message must be ONLY a JSON array with exactly ${STORY_COUNT} objects, no markdown fences, no explanation:
+
+[
+  {
+    "rank": 1,
+    "headline_en": "English headline",
+    "summary_en": "1-2 sentence English summary",
+    "category_en": "English category",
+    "sources": [
+      { "name": "publictv", "url": "https://...", "source_id": "12345" },
+      { "name": "tv9kannada", "url": "https://...", "source_id": null }
+    ]
+  }
+]
+
+- rank: 1 = most important
+- sources: array of all sources where this story appeared, with article URL and source-specific ID (null if none)
+- For cross-source stories: include ALL source entries`);
+		capture.stop();
+
+		const rawJson = extractJson(capture.getText());
+		if (!rawJson) throw new Error("No JSON found in phase 2 response");
+
+		const parsed = selectionsSchema.safeParse(JSON.parse(rawJson));
+		if (parsed.success) {
+			log.info("Phase 2 validation passed");
+			return parsed.data;
 		}
 
-		log.info("JSON extracted from agent response");
-		let parsed = newsArticlesSchema.safeParse(JSON.parse(rawJson));
+		throw new Error(`Phase 2 validation failed: ${JSON.stringify(parsed.error.issues)}`);
+	} finally {
+		session.dispose();
+	}
+}
 
-		if (parsed.success) {
-			log.info("Validation passed on first attempt");
-			return parsed.data;
+// ── Phase 3: Translate ───────────────────────────────────────────────
+
+async function runPhase3(selection: NewsSelection, city: string, playbook: string, cwd: string): Promise<NewsArticle> {
+	const log = logger.child({ module: "news-agent", phase: 3, rank: selection.rank });
+	log.info({ headline: selection.headline_en }, "Starting phase 3 translation");
+
+	const articleSchema = createNewsArticleSchema(STORY_COUNT);
+
+	const { session } = await createPhaseSession(cwd, `You are a ${city} news translator and content extractor.`);
+	try {
+		const selectionJson = JSON.stringify(selection, null, 2);
+
+		let lastParseResult: ReturnType<typeof articleSchema.safeParse> | null = null;
+
+		const capture = captureResponseText(session);
+		await session.prompt(`You are fetching and translating a full news article for ${city}.
+
+## Playbook
+${playbook}
+
+## Selected Story
+${selectionJson}
+
+## Instructions
+
+1. Fetch the FULL article content from the source(s) listed above. Use bash with curl.
+   - Use the playbook's source-specific instructions for fetching full articles.
+   - If multiple sources are listed, fetch from BOTH and pick the richer/more complete version.
+2. Extract the thumbnail URL following the playbook's source-specific instructions.
+3. Translate the full article content to natural, readable English:
+   - Headline: concise, newspaper-style
+   - Summary: 1-2 sentences capturing key facts
+   - Content: full article body as clean markdown (## for subheadings, paragraphs, no HTML)
+   - Category: translate the source's category tag
+
+## Output
+
+Your FINAL message must be ONLY a JSON object, no markdown fences, no explanation:
+
+{
+  "headline": "English headline",
+  "summary": "1-2 sentence English summary",
+  "content": "Full article body in English markdown",
+  "category": "English category",
+  "source": "source name(s), comma-separated if multiple",
+  "source_count": ${selection.sources.length},
+  "original_url": "primary article URL",
+  "thumbnail_url": "thumbnail image URL",
+  "rank": ${selection.rank}
+}`);
+		capture.stop();
+
+		const rawJson = extractJson(capture.getText());
+		if (rawJson) {
+			lastParseResult = articleSchema.safeParse(JSON.parse(rawJson));
+			if (lastParseResult.success) {
+				log.info("Phase 3 validation passed on first attempt");
+				return lastParseResult.data;
+			}
 		}
 
 		// Retry loop on validation failure
 		for (let attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
-			const errors = JSON.stringify(parsed.error.issues, null, 2);
-			log.info({ attempt, errors }, "Validation failed, sending retry prompt");
+			const errors = lastParseResult
+				? JSON.stringify(lastParseResult.error.issues, null, 2)
+				: "No JSON object found in response";
+			log.info({ attempt, errors }, "Phase 3 validation failed, retrying");
 
-			captureResponse();
+			const retryCapture = captureResponseText(session);
 			await session.prompt(
-				`Your JSON had validation errors:\n${errors}\n\nFix and return only the corrected JSON array. No markdown fences, no explanation.`,
+				`Your JSON had validation errors:\n${errors}\n\nFix and return only the corrected JSON object. No markdown fences, no explanation.`,
 			);
+			retryCapture.stop();
 
-			const retryJson = extractJson(fullResponse);
+			const retryJson = extractJson(retryCapture.getText());
 			if (!retryJson) {
-				log.info({ attempt }, "No JSON array found in retry response");
+				log.info({ attempt }, "No JSON found in retry response");
 				continue;
 			}
 
-			parsed = newsArticlesSchema.safeParse(JSON.parse(retryJson));
-			if (parsed.success) {
-				log.info({ attempt }, "Validation passed after retry");
-				return parsed.data;
+			lastParseResult = articleSchema.safeParse(JSON.parse(retryJson));
+			if (lastParseResult.success) {
+				log.info({ attempt }, "Phase 3 validation passed after retry");
+				return lastParseResult.data;
 			}
 		}
 
 		throw new Error(
-			`Validation failed after ${MAX_VALIDATION_RETRIES} retries: ${JSON.stringify(parsed.error.issues)}`,
+			`Phase 3 validation failed for rank ${selection.rank} after ${MAX_VALIDATION_RETRIES} retries: ${
+				lastParseResult ? JSON.stringify(lastParseResult.error.issues) : "no JSON found"
+			}`,
 		);
 	} finally {
-		unsubscribe?.();
 		session.dispose();
 	}
+}
+
+// ── Orchestrator ─────────────────────────────────────────────────────
+
+export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
+	const log = logger.child({ module: "news-agent", city });
+
+	// 1. Read playbook
+	const playbookPath = join("memory", "news", city, "playbook.md");
+	const playbook = readFileSync(playbookPath, "utf-8");
+	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+	// 2. Create shared workspace
+	const cwd = createWorkspace(`${city}-${today}`);
+	log.info({ cwd }, "Created shared workspace");
+
+	// 3. Phase 1: Extract — sequential per source
+	for (const source of SOURCES) {
+		await runPhase1(source, city, playbook, today, cwd);
+	}
+	log.info("Phase 1 complete — all sources extracted");
+
+	// 4. Phase 2: Select — single call
+	const sourceFiles = SOURCES.map((s) => `stories-${s}.md`);
+	const selections = await runPhase2(city, sourceFiles, cwd);
+	log.info({ count: selections.length }, "Phase 2 complete — stories selected");
+
+	// 5. Phase 3: Translate — sequential per article
+	const articles: NewsArticle[] = [];
+	for (const selection of selections) {
+		const article = await runPhase3(selection, city, playbook, cwd);
+		articles.push(article);
+	}
+	log.info({ count: articles.length }, "Phase 3 complete — all articles translated");
+
+	// 6. Return
+	return articles;
 }
