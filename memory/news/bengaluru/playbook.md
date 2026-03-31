@@ -47,7 +47,7 @@ if len(items) > 20:
 print(cleaned)
 "
 ```
-The raw RSS feed is ~400KB (60 items with full article HTML). The command above strips `content:encoded` and limits to 20 items (~20KB).
+The raw RSS feed is very large because it includes full article HTML. The command above strips `content:encoded` and limits to 20 items to keep output manageable.
 
 **Full article content:**
 ```
