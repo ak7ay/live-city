@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
 import { logger } from "../config/logger.js";
-import { type NewsArticle, newsArticlesSchema } from "./schema.js";
+import { createNewsArticlesSchema, type NewsArticle } from "./schema.js";
+
+const newsArticlesSchema = createNewsArticlesSchema(5);
 
 const MAX_VALIDATION_RETRIES = 3;
 

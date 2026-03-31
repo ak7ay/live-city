@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type NewsArticle, newsArticlesSchema } from "../../src/news/schema.js";
+import {
+	createNewsArticleSchema,
+	createNewsArticlesSchema,
+	createNewsSelectionsSchema,
+	type NewsArticle,
+	type NewsSelection,
+} from "../../src/news/schema.js";
 
 function makeArticle(overrides: Partial<NewsArticle> = {}): NewsArticle {
 	return {
@@ -19,7 +25,26 @@ function makeFiveArticles(overrides: Partial<NewsArticle>[] = []): NewsArticle[]
 	return Array.from({ length: 5 }, (_, i) => makeArticle({ rank: i + 1, ...overrides[i] }));
 }
 
-describe("newsArticlesSchema", () => {
+function makeSelection(overrides: Partial<NewsSelection> = {}): NewsSelection {
+	return {
+		rank: 1,
+		headline_en: "Gold prices surge in Chennai",
+		summary_en: "Gold hit record highs across Tamil Nadu markets today.",
+		category_en: "commodities",
+		sources: [{ name: "The Hindu", url: "https://thehindu.com/article1", source_id: null }],
+		...overrides,
+	};
+}
+
+function makeSelections(count: number, overrides: Partial<NewsSelection>[] = []): NewsSelection[] {
+	return Array.from({ length: count }, (_, i) => makeSelection({ rank: i + 1, ...overrides[i] }));
+}
+
+// ── Existing tests (updated to use factory) ──────────────────────────
+
+describe("createNewsArticlesSchema", () => {
+	const newsArticlesSchema = createNewsArticlesSchema(5);
+
 	it("accepts valid array of exactly 5 articles", () => {
 		const articles = makeFiveArticles();
 		const result = newsArticlesSchema.safeParse(articles);
@@ -134,11 +159,11 @@ describe("newsArticlesSchema", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("rejects article with source_count 3", () => {
+	it("accepts article with source_count 3 (no upper bound)", () => {
 		const articles = makeFiveArticles();
 		(articles[0] as any).source_count = 3;
 		const result = newsArticlesSchema.safeParse(articles);
-		expect(result.success).toBe(false);
+		expect(result.success).toBe(true);
 	});
 
 	it("rejects non-URL string for original_url", () => {
@@ -150,6 +175,114 @@ describe("newsArticlesSchema", () => {
 	it("rejects non-URL string for thumbnail_url", () => {
 		const articles = makeFiveArticles([{ thumbnail_url: "not-a-url" }]);
 		const result = newsArticlesSchema.safeParse(articles);
+		expect(result.success).toBe(false);
+	});
+
+	it("accepts valid array matching a different count", () => {
+		const schema = createNewsArticlesSchema(3);
+		const articles = Array.from({ length: 3 }, (_, i) => makeArticle({ rank: i + 1 }));
+		const result = schema.safeParse(articles);
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects wrong count for a different count schema", () => {
+		const schema = createNewsArticlesSchema(3);
+		const articles = makeFiveArticles();
+		const result = schema.safeParse(articles);
+		expect(result.success).toBe(false);
+	});
+});
+
+// ── New: createNewsArticleSchema tests ───────────────────────────────
+
+describe("createNewsArticleSchema", () => {
+	it("accepts a valid single article", () => {
+		const schema = createNewsArticleSchema(5);
+		const result = schema.safeParse(makeArticle({ rank: 3 }));
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects rank exceeding maxRank", () => {
+		const schema = createNewsArticleSchema(3);
+		const result = schema.safeParse(makeArticle({ rank: 4 }));
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects empty content", () => {
+		const schema = createNewsArticleSchema(5);
+		const result = schema.safeParse(makeArticle({ content: "" }));
+		expect(result.success).toBe(false);
+	});
+});
+
+// ── New: createNewsSelectionsSchema tests ─────────────────────────────
+
+describe("createNewsSelectionsSchema", () => {
+	it("accepts valid array of selections", () => {
+		const schema = createNewsSelectionsSchema(5);
+		const selections = makeSelections(5);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts selection with multiple sources", () => {
+		const schema = createNewsSelectionsSchema(3);
+		const selections = makeSelections(3, [
+			{
+				sources: [
+					{ name: "The Hindu", url: "https://thehindu.com/a", source_id: "abc123" },
+					{ name: "Times of India", url: "https://toi.com/b", source_id: null },
+				],
+			},
+		]);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts null source_id", () => {
+		const schema = createNewsSelectionsSchema(1);
+		const selections = makeSelections(1, [
+			{ sources: [{ name: "Source", url: "https://example.com", source_id: null }] },
+		]);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(true);
+	});
+
+	it("accepts string source_id", () => {
+		const schema = createNewsSelectionsSchema(1);
+		const selections = makeSelections(1, [
+			{ sources: [{ name: "Source", url: "https://example.com", source_id: "doc-42" }] },
+		]);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(true);
+	});
+
+	it("rejects wrong count", () => {
+		const schema = createNewsSelectionsSchema(5);
+		const selections = makeSelections(3);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects empty sources array", () => {
+		const schema = createNewsSelectionsSchema(1);
+		const selections = makeSelections(1, [{ sources: [] }]);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects empty headline_en", () => {
+		const schema = createNewsSelectionsSchema(1);
+		const selections = makeSelections(1, [{ headline_en: "" }]);
+		const result = schema.safeParse(selections);
+		expect(result.success).toBe(false);
+	});
+
+	it("rejects rank exceeding count", () => {
+		const schema = createNewsSelectionsSchema(3);
+		const selections = makeSelections(3);
+		(selections[0] as any).rank = 4;
+		const result = schema.safeParse(selections);
 		expect(result.success).toBe(false);
 	});
 });
