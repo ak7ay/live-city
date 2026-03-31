@@ -61,12 +61,52 @@ function captureResponseText(session: { subscribe: (cb: (event: any) => void) =>
 	};
 }
 
-function extractJson(text: string): string | null {
-	// Try array first, then object
-	const arrayMatch = text.match(/\[[\s\S]*\]/);
-	if (arrayMatch) return arrayMatch[0];
-	const objectMatch = text.match(/\{[\s\S]*\}/);
-	return objectMatch ? objectMatch[0] : null;
+export function extractJson(text: string): string | null {
+	const candidates: string[] = [];
+	const openers = { "[": "]", "{": "}" } as const;
+
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
+		if (ch !== "[" && ch !== "{") continue;
+		const closer = openers[ch as "[" | "{"];
+		let depth = 1;
+		let inString = false;
+		let escaped = false;
+		for (let j = i + 1; j < text.length; j++) {
+			const c = text[j];
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (c === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (c === '"') {
+				inString = !inString;
+				continue;
+			}
+			if (inString) continue;
+			if (c === ch) depth++;
+			else if (c === closer) depth--;
+			if (depth === 0) {
+				candidates.push(text.slice(i, j + 1));
+				break;
+			}
+		}
+	}
+
+	// Try longest candidates first (most likely to be the complete JSON)
+	candidates.sort((a, b) => b.length - a.length);
+	for (const c of candidates) {
+		try {
+			JSON.parse(c);
+			return c;
+		} catch {
+			// try next candidate
+		}
+	}
+	return null;
 }
 
 function tryParseJson(
@@ -147,6 +187,10 @@ Today's date: ${today}`);
 		const outputPath = join(cwd, outputFile);
 		if (!existsSync(outputPath)) {
 			throw new Error(`Phase 1: agent did not write ${outputFile}`);
+		}
+		const fileSize = readFileSync(outputPath, "utf-8").length;
+		if (fileSize < 100) {
+			throw new Error(`Phase 1: ${outputFile} is too small (${fileSize} chars) — likely empty or malformed`);
 		}
 		log.info({ file: outputFile }, "Phase 1 complete for source");
 	} finally {
