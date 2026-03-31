@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
@@ -22,8 +22,10 @@ function getAgentModel() {
 	return model;
 }
 
-function createWorkspace(label: string): string {
-	return mkdtempSync(join(tmpdir(), `news-${label}-`));
+function createWorkspace(city: string, today: string): string {
+	const dir = join(homedir(), ".cache", "news", city, today);
+	mkdirSync(dir, { recursive: true });
+	return dir;
 }
 
 async function createPhaseSession(cwd: string, systemSuffix: string) {
@@ -180,8 +182,7 @@ Your FINAL message must be ONLY a JSON array with exactly ${STORY_COUNT} objects
 
 // ── Phase 3: Translate ───────────────────────────────────────────────
 
-async function runPhase3(selection: NewsSelection, city: string, playbook: string): Promise<NewsArticle> {
-	const cwd = createWorkspace(`phase3-rank${selection.rank}-`);
+async function runPhase3(selection: NewsSelection, city: string, playbook: string, cwd: string): Promise<NewsArticle> {
 	const log = logger.child({ module: "news-agent", phase: 3, rank: selection.rank });
 	log.info({ headline: selection.headline_en }, "Starting phase 3 translation");
 
@@ -286,9 +287,9 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 	const playbook = readFileSync(playbookPath, "utf-8");
 	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
-	// 2. Create shared workspace
-	const cwd = createWorkspace(`${city}-${today}`);
-	log.info({ cwd }, "Created shared workspace");
+	// 2. Create workspace
+	const cwd = createWorkspace(city, today);
+	log.info({ cwd }, "Using workspace");
 
 	// 3. Phase 1: Extract — sequential per source
 	for (const source of SOURCES) {
@@ -304,7 +305,7 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 	// 5. Phase 3: Translate — sequential per article
 	const articles: NewsArticle[] = [];
 	for (const selection of selections) {
-		const article = await runPhase3(selection, city, playbook);
+		const article = await runPhase3(selection, city, playbook, cwd);
 		articles.push(article);
 	}
 	log.info({ count: articles.length }, "Phase 3 complete — all articles translated");
