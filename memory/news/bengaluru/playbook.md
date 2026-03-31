@@ -34,10 +34,17 @@ GET https://publictv.in/wp-json/wp/v2/media/{featured_media_id}?_fields=source_u
 
 **Method:** RSS Feed
 
-**Listing + full content in one request:**
+**Listing (headlines only):**
+```
+curl -s "https://tv9kannada.com/karnataka/bengaluru/feed" | python3 -c "import sys,re; print(re.sub(r'<content:encoded>.*?</content:encoded>', '', sys.stdin.read(), flags=re.DOTALL))"
+```
+The raw RSS feed is ~400KB because it includes full article HTML in `<content:encoded>`. The command above strips that, keeping only titles, descriptions, links, and categories (~70KB).
+
+**Full article content (when needed later):**
 ```
 GET https://tv9kannada.com/karnataka/bengaluru/feed
 ```
+Fetch the full RSS again and extract `<content:encoded>` for the specific article URL.
 
 **RSS fields:**
 - `<title>` — Kannada headline
