@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Bengaluru – Detail Screens</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-app: #08090C;
+    --bg-primary: #0D0F14;
+    --bg-card: #151820;
+    --bg-card-hover: #1A1E2A;
+    --bg-elevated: #1E222E;
+
+    --gold: #E8B931;
+    --gold-soft: #D4A828;
+    --gold-dim: rgba(232, 185, 49, 0.10);
+
+    --silver: #A8B2C1;
+    --silver-dim: rgba(168, 178, 193, 0.10);
+
+    --green: #34D399;
+    --green-dim: rgba(52, 211, 153, 0.10);
+    --red: #F87171;
+    --red-dim: rgba(248, 113, 113, 0.10);
+    --blue: #60A5FA;
+    --purple: #A78BFA;
+    --orange: #FB923C;
+
+    --text-1: #F1F3F8;
+    --text-2: #9098AB;
+    --text-3: #5D6577;
+    --text-4: #3A4050;
+
+    --border: rgba(255,255,255,0.05);
+    --border-light: rgba(255,255,255,0.08);
+
+    --r: 14px;
+    --r-sm: 10px;
+    --r-lg: 18px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+    padding: 40px 20px;
+    flex-wrap: wrap;
+  }
+
+  /* Column labels */
+  .column { display: flex; flex-direction: column; align-items: center; }
+  .column-label {
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  /* Phone frame */
+  .phone {
+    width: 375px;
+    height: 812px;
+    background: var(--bg-app);
+    border-radius: 40px;
+    border: 3px solid #222;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 24px 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-1);
+    flex-shrink: 0;
+  }
+  .status-icons { display: flex; gap: 5px; align-items: center; }
+  .status-icons span { font-size: 13px; }
+
+  /* Top bar with back button */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    flex-shrink: 0;
+  }
+  .back-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-2);
+    font-size: 18px;
+    cursor: pointer;
+    border: 1px solid var(--border-light);
+  }
+  .top-bar-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .top-bar-spacer { flex: 1; }
+  .share-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-2);
+    font-size: 16px;
+    cursor: pointer;
+    border: 1px solid var(--border-light);
+  }
+
+  /* Scrollable content */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 16px 24px;
+  }
+  .content::-webkit-scrollbar { display: none; }
+
+  /* ====== NEWS DETAIL ====== */
+
+  .news-hero {
+    width: 100%;
+    height: 200px;
+    border-radius: var(--r);
+    background: linear-gradient(135deg, #1a2a3a 0%, #0d1a2d 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .news-hero-emoji {
+    font-size: 64px;
+    opacity: 0.4;
+  }
+  .news-hero-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: linear-gradient(transparent, var(--bg-app));
+  }
+
+  .news-category {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--blue);
+    background: rgba(96, 165, 250, 0.10);
+    padding: 4px 10px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .news-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-1);
+    line-height: 1.3;
+    margin-bottom: 12px;
+  }
+
+  .news-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .news-meta-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--text-4);
+  }
+
+  .news-divider {
+    height: 1px;
+    background: var(--border-light);
+    margin-bottom: 20px;
+  }
+
+  .news-body p {
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--text-2);
+    margin-bottom: 16px;
+  }
+
+  .news-body p:first-child::first-letter {
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--text-1);
+    float: left;
+    line-height: 1;
+    margin-right: 8px;
+    margin-top: 4px;
+  }
+
+  /* ====== NEWS DETAIL — NO IMAGE VARIANT ====== */
+  .news-no-image .news-title {
+    font-size: 24px;
+    margin-top: 4px;
+  }
+
+  /* ====== EVENT DETAIL ====== */
+
+  .event-hero {
+    width: 100%;
+    height: 220px;
+    border-radius: var(--r);
+    background: linear-gradient(135deg, #1a1040 0%, #2d1b69 50%, #1a1040 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .event-hero-emoji {
+    font-size: 72px;
+  }
+  .event-tag-on-hero {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(167, 139, 250, 0.8);
+    padding: 4px 10px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .event-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-1);
+    line-height: 1.3;
+    margin-bottom: 16px;
+  }
+
+  /* Info rows */
+  .event-info {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .event-info-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .event-info-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .event-info-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .event-info-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+  }
+  .event-info-sub {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+
+  .event-divider {
+    height: 1px;
+    background: var(--border-light);
+    margin-bottom: 16px;
+  }
+
+  .event-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-1);
+    margin-bottom: 8px;
+  }
+
+  .event-description {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-2);
+    margin-bottom: 20px;
+  }
+
+  .event-price-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border-light);
+  }
+  .event-price-label {
+    font-size: 13px;
+    color: var(--text-3);
+  }
+  .event-price-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--gold);
+  }
+
+  /* Home indicator */
+  .home-indicator {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    padding: 8px 0 6px;
+  }
+  .home-indicator div {
+    width: 134px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.15);
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== NEWS DETAIL (with image) ==================== -->
+<div class="column">
+  <div class="column-label">News Detail — With Image</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span>9:41</span>
+      <div class="status-icons">
+        <span>📶</span><span>🔋</span>
+      </div>
+    </div>
+
+    <div class="top-bar">
+      <div class="back-btn">←</div>
+      <div class="top-bar-title">News</div>
+    </div>
+
+    <div class="content">
+      <div class="news-hero">
+        <span class="news-hero-emoji">🚇</span>
+        <div class="news-hero-overlay"></div>
+      </div>
+
+      <div class="news-category">Transport</div>
+
+      <div class="news-title">Namma Metro Purple Line Extension Opens Next Month</div>
+
+      <div class="news-meta">
+        <span>5 Apr 2026</span>
+        <div class="news-meta-dot"></div>
+        <span>3 min read</span>
+      </div>
+
+      <div class="news-divider"></div>
+
+      <div class="news-body">
+        <p>The much-awaited Purple Line extension of the Namma Metro is set to begin operations next month, connecting Whitefield to Challaghatta. The Bangalore Metro Rail Corporation Limited (BMRCL) confirmed that trial runs have been completed successfully.</p>
+
+        <p>The extension adds 8 new stations spanning 13.5 kilometres, significantly improving connectivity for the IT corridor. Peak-hour frequency will be every 4 minutes, with the first train departing at 5:30 AM.</p>
+
+        <p>Commuters travelling from Whitefield to Majestic can expect the journey to take approximately 35 minutes, compared to the current 90-minute bus ride during peak traffic. Monthly passes will be available at ₹1,400.</p>
+      </div>
+    </div>
+
+    <div class="home-indicator"><div></div></div>
+  </div>
+</div>
+
+<!-- ==================== NEWS DETAIL (no image) ==================== -->
+<div class="column">
+  <div class="column-label">News Detail — No Image</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span>9:41</span>
+      <div class="status-icons">
+        <span>📶</span><span>🔋</span>
+      </div>
+    </div>
+
+    <div class="top-bar">
+      <div class="back-btn">←</div>
+      <div class="top-bar-title">News</div>
+    </div>
+
+    <div class="content news-no-image">
+      <div class="news-category">Civic</div>
+
+      <div class="news-title">BBMP Announces Property Tax Rebate for Early Payments</div>
+
+      <div class="news-meta">
+        <span>5 Apr 2026</span>
+        <div class="news-meta-dot"></div>
+        <span>2 min read</span>
+      </div>
+
+      <div class="news-divider"></div>
+
+      <div class="news-body">
+        <p>Bruhat Bengaluru Mahanagara Palike has announced a 5% rebate on property tax for residents who complete their payments before April 30th. The move is aimed at encouraging early compliance and improving the corporation's revenue collection.</p>
+
+        <p>The rebate applies to both residential and commercial properties across all eight BBMP zones. Payments can be made online through the BBMP Sakala portal or at designated ward offices. Digital payments via UPI will also be accepted.</p>
+
+        <p>Last year, early payment compliance stood at 38%. The corporation hopes this incentive will push the figure above 55% this financial year. Property owners with pending arrears from previous years will need to clear those first before being eligible for the current year's rebate.</p>
+      </div>
+    </div>
+
+    <div class="home-indicator"><div></div></div>
+  </div>
+</div>
+
+<!-- ==================== EVENT DETAIL ==================== -->
+<div class="column">
+  <div class="column-label">Event Detail</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span>9:41</span>
+      <div class="status-icons">
+        <span>📶</span><span>🔋</span>
+      </div>
+    </div>
+
+    <div class="top-bar">
+      <div class="back-btn">←</div>
+      <div class="top-bar-title">Event</div>
+    </div>
+
+    <div class="content">
+      <div class="event-hero">
+        <span class="event-tag-on-hero">Music</span>
+        <span class="event-hero-emoji">🎵</span>
+      </div>
+
+      <div class="event-title">Prateek Kuhad Live at Phoenix Marketcity</div>
+
+      <div class="event-info">
+        <div class="event-info-row">
+          <div class="event-info-icon">📅</div>
+          <div class="event-info-text">
+            <span class="event-info-label">Saturday, 22 March 2026</span>
+            <span class="event-info-sub">7:30 PM – 10:00 PM</span>
+          </div>
+        </div>
+        <div class="event-info-row">
+          <div class="event-info-icon">📍</div>
+          <div class="event-info-text">
+            <span class="event-info-label">Phoenix Marketcity</span>
+            <span class="event-info-sub">Whitefield, Bengaluru</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="event-divider"></div>
+
+      <div class="event-section-title">About</div>
+      <div class="event-description">
+        Prateek Kuhad returns to Bengaluru with his "Silhouettes" tour, performing hits like "cold/mess" and "Kasoor" alongside tracks from his latest album. The intimate venue setting at Phoenix Marketcity's amphitheatre promises an unforgettable evening of indie folk music under the stars.
+      </div>
+
+      <div class="event-price-row">
+        <span class="event-price-label">Starting from</span>
+        <span class="event-price-value">₹1,499</span>
+      </div>
+    </div>
+
+    <div class="home-indicator"><div></div></div>
+  </div>
+</div>
+
+</body>
+</html>
