@@ -1,13 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-	captureResponseText,
-	createBrowserSession,
-	createPlainSession,
-	extractJson,
-	retryValidation,
-} from "../agent/shared.js";
+import { captureResponseText, createBrowserSession, createPlainSession, retryValidation } from "../agent/shared.js";
 import { logger } from "../config/logger.js";
 import {
 	type EnrichedEvent,
@@ -106,7 +100,6 @@ If NO events found, return an empty array: []`);
 
 // ── Phase 2a: Collect + enrich BMS events ────────────────────────────
 
-// biome-ignore lint/correctness/noUnusedVariables: wired in Task 4 when orchestrator is updated
 async function collectBmsEvents(city: string, today: string, cwd: string): Promise<EnrichedEvent[]> {
 	const log = logger.child({ module: "events-agent", phase: "bms" });
 	const config = CITY_CONFIG[city];
@@ -184,7 +177,6 @@ If everything worked, say "No playbook changes needed."`);
 
 // ── Phase 2b: Collect + enrich District events ──────────────────────
 
-// biome-ignore lint/correctness/noUnusedVariables: wired in Task 5 when orchestrator is updated
 async function collectDistrictEvents(city: string, today: string, cwd: string): Promise<EnrichedEvent[]> {
 	const log = logger.child({ module: "events-agent", phase: "district" });
 	const config = CITY_CONFIG[city];
@@ -266,118 +258,39 @@ If everything worked, say "No playbook changes needed."`);
 	}
 }
 
-// ── Phase 2: Collect ticketed listings ───────────────────────────────
+// ── Phase 3: Rank events (no browser) ────────────────────────────────
 
-async function collectTicketedListings(city: string, cwd: string): Promise<{ bms: RawEvent[]; district: RawEvent[] }> {
-	const log = logger.child({ module: "events-agent", phase: "ticketed" });
-	const config = CITY_CONFIG[city];
-	if (!config) throw new Error(`No city config for: ${city}`);
-
-	const bmsPlaybook = readPlaybook(cwd, "playbook-bookmyshow.md");
-	const districtPlaybook = readPlaybook(cwd, "playbook-district.md");
-
-	// Only pass listing steps — strip enrichment sections
-	const bmsListingSection = bmsPlaybook.split("## Step 2")[0];
-	const districtListingSection = districtPlaybook.split("## Step 3")[0];
-
-	log.info("Starting ticketed listings collection (BMS + District)");
-
-	const session = await createBrowserSession(cwd, `You are a ${city} events listing extractor using browser tools.`);
-	try {
-		const capture = captureResponseText(session);
-		await session.prompt(`Extract event listings from BookMyShow and District.in for ${city}.
-
-## Part 1: BookMyShow
-
-Follow the listing extraction step from this playbook (Step 1 ONLY — do NOT visit detail pages):
-
-${bmsListingSection}
-
-City slug: ${config.bms_slug}
-
-## Part 2: District.in
-
-Follow the cookie setup and listing extraction steps from this playbook (Steps 1-2 ONLY — do NOT visit detail pages):
-
-${districtListingSection}
-
-City config:
-- city_slug: ${city}
-- city_name: ${config.district_name}
-- lat: ${config.district_lat}
-- long: ${config.district_long}
-
-Filter out events NOT in ${config.district_name}.
-
-## Output
-
-Return ONLY a JSON object (no markdown fences) with two arrays:
-{
-  "bms": [{ "title", "category", "event_date", "event_time": null, "venue", "price", "source": "bookmyshow", "source_url", "image_url", "description": null }],
-  "district": [{ "title", "category": null, "event_date", "event_time", "venue", "price", "source": "district", "source_url", "image_url", "description": null }]
-}
-
-Include ALL events from both listings. Do not filter or rank — just collect.`);
-		capture.stop();
-
-		const responseText = capture.getText();
-		const json = extractJson(responseText);
-		if (!json) throw new Error("No JSON found in ticketed listings response");
-
-		const parsed = JSON.parse(json);
-		const bms = rawEventsSchema.parse(parsed.bms ?? []);
-		const district = rawEventsSchema.parse(parsed.district ?? []);
-
-		log.info({ bms: bms.length, district: district.length }, "Ticketed listings collected");
-		return { bms, district };
-	} finally {
-		session.dispose();
-	}
-}
-
-// ── Phase 3: Rank, enrich, and feedback ──────────────────────────────
-
-async function rankEnrichAndFeedback(
+async function rankEvents(
 	newsEvents: RawEvent[],
-	bmsEvents: RawEvent[],
-	districtEvents: RawEvent[],
+	bmsEvents: EnrichedEvent[],
+	districtEvents: EnrichedEvent[],
 	city: string,
+	today: string,
 	cwd: string,
 ): Promise<EventArticle[]> {
-	const log = logger.child({ module: "events-agent", phase: "rank-enrich" });
-
-	const bmsPlaybook = readPlaybook(cwd, "playbook-bookmyshow.md");
-	const districtPlaybook = readPlaybook(cwd, "playbook-district.md");
-
-	// Only pass enrichment sections — the agent already has listing data in the prompt
-	const bmsEnrichSection = bmsPlaybook.slice(bmsPlaybook.indexOf("## Step 2"));
-	const districtEnrichSection = districtPlaybook.slice(districtPlaybook.indexOf("## Step 3"));
-
-	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+	const log = logger.child({ module: "events-agent", phase: "ranking" });
 
 	log.info(
 		{ news: newsEvents.length, bms: bmsEvents.length, district: districtEvents.length },
-		"Starting rank + enrich phase",
+		"Starting ranking phase",
 	);
 
-	const session = await createBrowserSession(cwd, `You are a ${city} events curator and enricher.`);
+	const session = await createPlainSession(cwd, `You are a ${city} events curator.`);
 	try {
-		// ── Prompt 1: Rank + enrich ──
 		const capture = captureResponseText(session);
-		await session.prompt(`You have event listings from 3 sources for ${city}. Rank them, select the best, enrich the selected ones, and output the final list.
+		await session.prompt(`You have pre-enriched event listings from 3 sources for ${city}. Rank them and output the final list.
 
 ## Source A: News Events (HIGH PRIORITY — include all)
 ${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
 
-## Source B: BookMyShow Listings
-${JSON.stringify(bmsEvents, null, 2)}
+## Source B: BookMyShow (pre-enriched)
+${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
 
-## Source C: District.in Listings
-${JSON.stringify(districtEvents, null, 2)}
+## Source C: District.in (pre-enriched)
+${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
 
-## Step 1: Rank and Select
+## Ranking Rules
 
-Ranking criteria (highest to lowest):
 1. **News events** — always include all (editorially significant)
 2. **Time proximity** — events happening sooner rank higher (today is ${today})
 3. **Significance** — big concerts, major sports, large festivals > small bar gigs
@@ -387,19 +300,15 @@ Ranking criteria (highest to lowest):
 
 Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
 
-## Step 2: Enrich Selected Ticketed Events
+## News Event Transformation
 
-For each selected BMS or District event, visit its detail page to get description, full date, time, duration, and venue details.
+For news events, transform the venue field:
+- Use the venue string as venue_name, set venue_area to null if no area info is embedded
+- If the venue contains a comma or colon separator, split into venue_name and venue_area
+- Keep description from the news event
+- Set duration to null
 
-### BMS Enrichment
-${bmsEnrichSection}
-
-### District Enrichment
-${districtEnrichSection}
-
-News events do NOT need enrichment.
-
-## Step 3: Output
+## Output
 
 Return ONLY a JSON array (no markdown fences). Each object:
 {
@@ -422,23 +331,7 @@ Rank 1 = most important. News events first, then ticketed by rank.`);
 		capture.stop();
 
 		const events: EventArticle[] = await retryValidation(session, capture.getText(), eventArticlesSchema, log);
-		log.info({ count: events.length }, "Events ranked and enriched");
-
-		// ── Prompt 2: Playbook feedback ──
-		log.info("Requesting playbook feedback");
-		const feedbackCapture = captureResponseText(session);
-		await session.prompt(`Review your session. If you encountered issues with the playbooks, edit the files directly:
-
-- Broken selectors (CSS selector or regex returned no/wrong data)
-- New quirks (unexpected page structure, changed URL patterns)
-- Better approaches (simpler selector, faster extraction)
-
-Files: memory/events/playbook-bookmyshow.md, memory/events/playbook-district.md
-
-If everything worked, say "No playbook changes needed."`);
-		feedbackCapture.stop();
-		log.info("Feedback phase complete");
-
+		log.info({ count: events.length }, "Events ranked");
 		return events;
 	} finally {
 		session.dispose();
@@ -456,13 +349,17 @@ export async function fetchEventsViaAgent(city: string): Promise<EventArticle[]>
 	log.info("Phase 1: Collecting news events");
 	const newsEvents = await collectNewsEvents(city, today, cwd);
 
-	// Phase 2: Collect ticketed listings (browser)
-	log.info("Phase 2: Collecting ticketed listings");
-	const { bms, district } = await collectTicketedListings(city, cwd);
+	// Phase 2a: Collect + enrich BMS events (browser)
+	log.info("Phase 2a: Collecting BMS events");
+	const bmsEvents = await collectBmsEvents(city, today, cwd);
 
-	// Phase 3: Rank, enrich, and feedback (browser)
-	log.info("Phase 3: Ranking, enriching, and collecting feedback");
-	const events = await rankEnrichAndFeedback(newsEvents, bms, district, city, cwd);
+	// Phase 2b: Collect + enrich District events (browser)
+	log.info("Phase 2b: Collecting District events");
+	const districtEvents = await collectDistrictEvents(city, today, cwd);
+
+	// Phase 3: Rank all events (no browser)
+	log.info("Phase 3: Ranking events");
+	const events = await rankEvents(newsEvents, bmsEvents, districtEvents, city, today, cwd);
 
 	log.info({ count: events.length }, "All events collected");
 	return events;
