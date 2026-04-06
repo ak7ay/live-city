@@ -53,8 +53,8 @@ describe("enrichedEventSchema", () => {
 		expect(enrichedEventSchema.safeParse(makeEnrichedEvent({ category: "" })).success).toBe(false);
 	});
 
-	it("rejects empty event_date", () => {
-		expect(enrichedEventSchema.safeParse(makeEnrichedEvent({ event_date: "" })).success).toBe(false);
+	it("accepts null event_date", () => {
+		expect(enrichedEventSchema.safeParse(makeEnrichedEvent({ event_date: null })).success).toBe(true);
 	});
 
 	it("only accepts bookmyshow or district as source", () => {
