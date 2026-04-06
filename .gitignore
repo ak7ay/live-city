@@ -18,6 +18,9 @@ logs/
 .vscode/
 .zed/
 .idea/
+
+# Superpowers
+.superpowers/
 *.swp
 *.swo
 *~

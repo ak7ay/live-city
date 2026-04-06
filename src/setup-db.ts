@@ -1,6 +1,6 @@
 import { OrderBy, type TablesDB, TablesDBIndexType } from "node-appwrite";
 import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
-import { DB_ID, TABLE_METAL_PRICES, TABLE_NEWS_ARTICLES } from "./config/constants.js";
+import { DB_ID, TABLE_EVENTS, TABLE_METAL_PRICES, TABLE_NEWS_ARTICLES } from "./config/constants.js";
 import { loadEnv } from "./config/env.js";
 
 async function createDatabaseIfNotExists(db: TablesDB): Promise<void> {
@@ -373,6 +373,175 @@ async function createNewsIndexes(db: TablesDB): Promise<void> {
 	]);
 }
 
+async function createEventsColumns(db: TablesDB): Promise<void> {
+	const cols: Array<{ key: string; fn: () => Promise<unknown> }> = [
+		{
+			key: "city",
+			fn: () =>
+				db.createVarcharColumn({ databaseId: DB_ID, tableId: TABLE_EVENTS, key: "city", size: 64, required: true }),
+		},
+		{
+			key: "title",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "title",
+					size: 512,
+					required: true,
+				}),
+		},
+		{
+			key: "description",
+			fn: () =>
+				db.createTextColumn({ databaseId: DB_ID, tableId: TABLE_EVENTS, key: "description", required: true }),
+		},
+		{
+			key: "category",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "category",
+					size: 64,
+					required: true,
+				}),
+		},
+		{
+			key: "event_date",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "event_date",
+					size: 128,
+					required: true,
+				}),
+		},
+		{
+			key: "event_time",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "event_time",
+					size: 64,
+					required: false,
+				}),
+		},
+		{
+			key: "duration",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "duration",
+					size: 64,
+					required: false,
+				}),
+		},
+		{
+			key: "venue_name",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "venue_name",
+					size: 256,
+					required: false,
+				}),
+		},
+		{
+			key: "venue_area",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "venue_area",
+					size: 256,
+					required: false,
+				}),
+		},
+		{
+			key: "price",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "price",
+					size: 128,
+					required: false,
+				}),
+		},
+		{
+			key: "source",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "source",
+					size: 64,
+					required: true,
+				}),
+		},
+		{
+			key: "source_url",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "source_url",
+					size: 512,
+					required: true,
+				}),
+		},
+		{
+			key: "image_url",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "image_url",
+					size: 512,
+					required: false,
+				}),
+		},
+		{
+			key: "rank",
+			fn: () => db.createIntegerColumn({ databaseId: DB_ID, tableId: TABLE_EVENTS, key: "rank", required: true }),
+		},
+		{
+			key: "fetch_date",
+			fn: () =>
+				db.createVarcharColumn({
+					databaseId: DB_ID,
+					tableId: TABLE_EVENTS,
+					key: "fetch_date",
+					size: 64,
+					required: true,
+				}),
+		},
+		{
+			key: "fetched_at",
+			fn: () =>
+				db.createDatetimeColumn({ databaseId: DB_ID, tableId: TABLE_EVENTS, key: "fetched_at", required: true }),
+		},
+	];
+	for (const { key, fn } of cols) {
+		await createColumnIfNotExists(db, TABLE_EVENTS, fn, key);
+	}
+}
+
+async function createEventsIndexes(db: TablesDB): Promise<void> {
+	await deleteFailedIndexes(db, TABLE_EVENTS);
+	await createIndexIfNotExists(db, TABLE_EVENTS, "idx_city_fetch", TablesDBIndexType.Key, ["city", "fetch_date"]);
+	await createIndexIfNotExists(db, TABLE_EVENTS, "idx_city_fetch_rank", TablesDBIndexType.Key, [
+		"city",
+		"fetch_date",
+		"rank",
+	]);
+}
+
 async function main(): Promise<void> {
 	const env = loadEnv();
 	const client = createAppwriteClient(env);
@@ -394,6 +563,12 @@ async function main(): Promise<void> {
 	console.log("\nWaiting for news columns to be processed...");
 	await waitForColumns(db, TABLE_NEWS_ARTICLES);
 	await createNewsIndexes(db);
+
+	await createTableIfNotExists(db, TABLE_EVENTS);
+	await createEventsColumns(db);
+	console.log("\nWaiting for events columns to be processed...");
+	await waitForColumns(db, TABLE_EVENTS);
+	await createEventsIndexes(db);
 
 	console.log("\nSchema setup complete.");
 }

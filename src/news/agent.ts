@@ -1,149 +1,21 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "@mariozechner/pi-ai";
-import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mariozechner/pi-coding-agent";
+import { captureResponseText, createPlainSession, retryValidation } from "../agent/shared.js";
 import { logger } from "../config/logger.js";
 import { createNewsArticleSchema, createNewsSelectionsSchema, type NewsArticle, type NewsSelection } from "./schema.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const MAX_VALIDATION_RETRIES = 3;
-const MODEL_ID = "claude-sonnet-4-6";
-const THINKING_LEVEL = "medium";
 const STORY_COUNT = 8;
 const SOURCES = ["publictv", "tv9kannada"] as const;
 
-// ── Shared helpers ───────────────────────────────────────────────────
-
-function getAgentModel() {
-	const model = getModel("anthropic", MODEL_ID);
-	if (!model) throw new Error(`Model not found: anthropic/${MODEL_ID}`);
-	return model;
-}
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function createWorkspace(city: string, today: string): string {
 	const dir = join(homedir(), ".cache", "news", city, today);
 	mkdirSync(dir, { recursive: true });
 	return dir;
-}
-
-async function createPhaseSession(cwd: string, systemSuffix: string) {
-	const loader = new DefaultResourceLoader({
-		cwd,
-		skillsOverride: () => ({ skills: [], diagnostics: [] }),
-		appendSystemPrompt: systemSuffix,
-	});
-	await loader.reload();
-
-	const sessionManager = SessionManager.create(cwd);
-	const { session } = await createAgentSession({
-		cwd,
-		model: getAgentModel(),
-		thinkingLevel: THINKING_LEVEL,
-		resourceLoader: loader,
-		sessionManager,
-	});
-
-	return { session, sessionManager };
-}
-
-function captureResponseText(session: { subscribe: (cb: (event: any) => void) => () => void }) {
-	let text = "";
-	const unsubscribe = session.subscribe((event: any) => {
-		if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-			text += event.assistantMessageEvent.delta;
-		}
-	});
-	return {
-		getText: () => text,
-		stop: () => unsubscribe(),
-	};
-}
-
-export function extractJson(text: string): string | null {
-	const candidates: string[] = [];
-	const openers = { "[": "]", "{": "}" } as const;
-
-	for (let i = 0; i < text.length; i++) {
-		const ch = text[i];
-		if (ch !== "[" && ch !== "{") continue;
-		const closer = openers[ch as "[" | "{"];
-		let depth = 1;
-		let inString = false;
-		let escaped = false;
-		for (let j = i + 1; j < text.length; j++) {
-			const c = text[j];
-			if (escaped) {
-				escaped = false;
-				continue;
-			}
-			if (c === "\\") {
-				escaped = true;
-				continue;
-			}
-			if (c === '"') {
-				inString = !inString;
-				continue;
-			}
-			if (inString) continue;
-			if (c === ch) depth++;
-			else if (c === closer) depth--;
-			if (depth === 0) {
-				candidates.push(text.slice(i, j + 1));
-				break;
-			}
-		}
-	}
-
-	// Try longest candidates first (most likely to be the complete JSON)
-	candidates.sort((a, b) => b.length - a.length);
-	for (const c of candidates) {
-		try {
-			JSON.parse(c);
-			return c;
-		} catch {
-			// try next candidate
-		}
-	}
-	return null;
-}
-
-function tryParseJson(
-	text: string,
-	schema: { safeParse: (v: unknown) => any },
-): { data: any; error: null } | { data: null; error: string } {
-	const raw = extractJson(text);
-	if (!raw) return { data: null, error: "No JSON object found in response" };
-	try {
-		const obj = JSON.parse(raw);
-		const result = schema.safeParse(obj);
-		if (result.success) return { data: result.data, error: null };
-		return { data: null, error: JSON.stringify(result.error.issues, null, 2) };
-	} catch (e) {
-		return { data: null, error: e instanceof Error ? e.message : String(e) };
-	}
-}
-
-async function retryValidation(session: any, text: string, schema: Parameters<typeof tryParseJson>[1], log: any) {
-	let result = tryParseJson(text, schema);
-	if (result.data !== null) return result.data;
-
-	for (let attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
-		log.info({ attempt, error: result.error }, "Validation failed, retrying");
-		const retryCapture = captureResponseText(session);
-		await session.prompt(
-			`Your JSON had errors:\n${result.error}\n\nFix and return only the corrected JSON object. No markdown fences, no explanation.`,
-		);
-		retryCapture.stop();
-		result = tryParseJson(retryCapture.getText(), schema);
-		if (result.data !== null) {
-			log.info({ attempt }, "Validation passed after retry");
-			return result.data;
-		}
-	}
-
-	throw new Error(`Validation failed after ${MAX_VALIDATION_RETRIES} retries: ${result.error}`);
 }
 
 // ── Phase 1: Extract ─────────────────────────────────────────────────
@@ -153,7 +25,7 @@ async function runPhase1(source: string, city: string, playbook: string, today: 
 	const outputFile = `stories-${source}.md`;
 	log.info("Starting phase 1 extraction");
 
-	const { session } = await createPhaseSession(cwd, `You are a ${city} news extractor for ${source}.`);
+	const session = await createPlainSession(cwd, `You are a ${city} news extractor for ${source}.`);
 	try {
 		const capture = captureResponseText(session);
 		await session.prompt(`You are extracting today's news stories from the "${source}" source for ${city}.
@@ -206,7 +78,7 @@ async function runPhase2(city: string, sourceFiles: string[], cwd: string): Prom
 
 	const selectionsSchema = createNewsSelectionsSchema(STORY_COUNT);
 
-	const { session } = await createPhaseSession(cwd, `You are a ${city} news editor selecting the top stories.`);
+	const session = await createPlainSession(cwd, `You are a ${city} news editor selecting the top stories.`);
 	try {
 		const capture = captureResponseText(session);
 		await session.prompt(`You are selecting the top ${STORY_COUNT} news stories for ${city} from multiple sources.
@@ -262,7 +134,7 @@ async function runPhase3(selection: NewsSelection, city: string, playbook: strin
 
 	const articleSchema = createNewsArticleSchema(STORY_COUNT);
 
-	const { session } = await createPhaseSession(cwd, `You are a ${city} news translator and content extractor.`);
+	const session = await createPlainSession(cwd, `You are a ${city} news translator and content extractor.`);
 	try {
 		const selectionJson = JSON.stringify(selection, null, 2);
 
