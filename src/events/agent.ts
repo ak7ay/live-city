@@ -182,6 +182,90 @@ If everything worked, say "No playbook changes needed."`);
 	}
 }
 
+// ── Phase 2b: Collect + enrich District events ──────────────────────
+
+// biome-ignore lint/correctness/noUnusedVariables: wired in Task 5 when orchestrator is updated
+async function collectDistrictEvents(city: string, today: string, cwd: string): Promise<EnrichedEvent[]> {
+	const log = logger.child({ module: "events-agent", phase: "district" });
+	const config = CITY_CONFIG[city];
+	if (!config) throw new Error(`No city config for: ${city}`);
+
+	const districtPlaybook = readPlaybook(cwd, "playbook-district.md");
+
+	log.info("Starting District collection + enrichment");
+
+	const session = await createBrowserSession(cwd, `You are a ${city} events extractor using browser tools.`);
+	try {
+		// ── Prompt 1: List + enrich ──
+		const capture = captureResponseText(session);
+		await session.prompt(`Extract and enrich the top 10 events from District.in for ${city}.
+
+Follow this playbook:
+
+${districtPlaybook}
+
+City config:
+- city_slug: ${city}
+- city_name: ${config.district_name}
+- lat: ${config.district_lat}
+- long: ${config.district_long}
+Today: ${today}
+
+## Instructions
+
+1. **Steps 1-2 from playbook**: Set city cookie and extract all listings
+2. **Filter**: Remove events NOT in ${config.district_name}
+3. **Select top 10**: Pick the 10 most promising events based on:
+   - Events with dates rank higher than null-date events
+   - Time proximity (sooner = higher, today is ${today})
+   - Significance (big-name concerts, major sports > small bar gigs)
+   - Category diversity (aim for a mix)
+4. **Step 3 from playbook**: Visit each selected event's detail page and enrich with description, duration, etc.
+5. **Step 4 from playbook**: Parse datetime into event_date and event_time
+
+## Output
+
+Return ONLY a JSON array (no markdown fences). Each object:
+{
+  "title": "string",
+  "description": "string (1-3 sentences from detail page)",
+  "category": "string (inferred per playbook guidelines)",
+  "event_date": "string (e.g. Fri, 17 Apr 2026)",
+  "event_time": "string or null",
+  "duration": "string or null",
+  "venue_name": "string (parsed from venue, see playbook)",
+  "venue_area": "string or null (parsed from venue, see playbook)",
+  "price": "string or null",
+  "source": "district",
+  "source_url": "string",
+  "image_url": "string or null"
+}`);
+		capture.stop();
+
+		const events: EnrichedEvent[] = await retryValidation(session, capture.getText(), enrichedEventsSchema, log);
+		log.info({ count: events.length }, "District events collected and enriched");
+
+		// ── Prompt 2: Playbook feedback ──
+		log.info("Requesting District playbook feedback");
+		const feedbackCapture = captureResponseText(session);
+		await session.prompt(`Review your session. If you encountered issues with the playbook, edit the file directly:
+
+- Broken selectors (CSS selector or regex returned no/wrong data)
+- New quirks (unexpected page structure, changed URL patterns)
+- Better approaches (simpler selector, faster extraction)
+
+File: memory/events/playbook-district.md
+
+If everything worked, say "No playbook changes needed."`);
+		feedbackCapture.stop();
+		log.info("District feedback phase complete");
+
+		return events;
+	} finally {
+		session.dispose();
+	}
+}
+
 // ── Phase 2: Collect ticketed listings ───────────────────────────────
 
 async function collectTicketedListings(city: string, cwd: string): Promise<{ bms: RawEvent[]; district: RawEvent[] }> {
