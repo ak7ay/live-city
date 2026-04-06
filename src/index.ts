@@ -4,10 +4,10 @@ import { loadEnv } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { loadLalithaaConfig } from "./config/source-loader.js";
 import { updateEventsForCity } from "./extractor/events-updater.js";
+import { updatePriceForCity } from "./extractor/metals-updater.js";
 import { updateNewsForCity } from "./extractor/news-updater.js";
-import { updatePriceForCity } from "./extractor/price-updater.js";
+import { fetchPrice, resolveStateIds } from "./metals/lalithaa.js";
 import { startScheduler } from "./scheduler.js";
-import { fetchPrice, resolveStateIds } from "./sources/lalithaa.js";
 
 async function main(): Promise<void> {
 	const env = loadEnv();
