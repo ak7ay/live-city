@@ -3,6 +3,7 @@ import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
 import { loadEnv } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { loadLalithaaConfig } from "./config/source-loader.js";
+import { updateEventsForCity } from "./extractor/events-updater.js";
 import { updateNewsForCity } from "./extractor/news-updater.js";
 import { updatePriceForCity } from "./extractor/price-updater.js";
 import { startScheduler } from "./scheduler.js";
@@ -59,7 +60,19 @@ async function main(): Promise<void> {
 	await newsTick();
 	startScheduler("bengaluru-news", "0 8,13,19 * * *", newsTick);
 
-	logger.info("Price & news extractors running. Press Ctrl+C to stop.");
+	const eventsTick = async () => {
+		try {
+			await updateEventsForCity(db, "bengaluru");
+		} catch (error) {
+			logger.error({ error }, "Events update failed for bengaluru");
+		}
+	};
+
+	logger.info("Running initial events fetch...");
+	await eventsTick();
+	startScheduler("bengaluru-events", "30 9 * * *", eventsTick);
+
+	logger.info("Price, news & events extractors running. Press Ctrl+C to stop.");
 }
 
 main().catch((error) => {
