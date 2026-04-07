@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 
 	logger.info("Running initial news fetch...");
 	await newsTick();
-	startScheduler("bengaluru-news", "0 8,13,19 * * *", newsTick);
+	startScheduler("bengaluru-news", "0 7,12,18 * * *", newsTick);
 
 	const eventsTick = async () => {
 		try {
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
 
 	logger.info("Running initial events fetch...");
 	await eventsTick();
-	startScheduler("bengaluru-events", "30 9 * * *", eventsTick);
+	startScheduler("bengaluru-events", "0 9 * * *", eventsTick);
 
 	logger.info("Price, news & events extractors running. Press Ctrl+C to stop.");
 }
