@@ -12,7 +12,6 @@ import { logger } from "../config/logger.js";
 import {
 	type EnrichedEvent,
 	type EventArticle,
-	enrichedEventSchema,
 	enrichedEventsSchema,
 	eventArticlesSchema,
 	type RawEvent,
@@ -23,62 +22,36 @@ import {
 
 const TOP_TICKETED_COUNT = 10;
 
-// Lenient schema: same as enrichedEventSchema but event_date is nullable.
-// Used as fallback when agent can't fix missing dates after feedback.
-import { z } from "zod/v4";
-
-const enrichedEventLenientSchema = z.array(enrichedEventSchema.extend({ event_date: z.string().nullable() }));
-
 /**
- * Validate enriched events with in-session feedback:
+ * Validate enriched events with one retry:
  * 1. Strict parse (event_date required)
- * 2. If fails → send error to agent in same session → strict parse again
- * 3. If still fails → lenient parse → filter out events with null dates → return rest
+ * 2. If fails → send validation error to agent → strict parse again
+ * 3. If still fails → log error, return [] to let other sources continue
  */
 async function validateEnrichedEvents(
 	session: { prompt: (msg: string) => Promise<void> } & { subscribe: (cb: (event: any) => void) => () => void },
 	text: string,
-	log: { info: (...args: any[]) => void },
+	log: { info: (...args: any[]) => void; error: (...args: any[]) => void },
 	source: string,
 ): Promise<EnrichedEvent[]> {
 	// 1. Strict parse
 	const first = tryParseJson(text, enrichedEventsSchema);
 	if (first.data !== null) return first.data;
 
-	// 2. Feedback to agent in same session
+	// 2. Send validation error as feedback
 	log.info({ error: first.error }, `${source}: validation failed, sending feedback to agent`);
 	const retry = captureResponseText(session);
 	await session.prompt(
-		`Your JSON had errors:\n${first.error}\n\nFix and return only the corrected JSON. No markdown fences.\nIf an event has no date, drop it and substitute the next candidate from the listing.`,
+		`Your JSON had errors:\n${first.error}\n\nFix and return only the corrected JSON. No markdown fences.`,
 	);
 	retry.stop();
 
 	const second = tryParseJson(retry.getText(), enrichedEventsSchema);
 	if (second.data !== null) return second.data;
 
-	// 3. Lenient fallback — parse allowing null dates, then filter them out
-	log.info(`${source}: second validation failed, falling back to lenient parse + filter`);
-	const lenient = tryParseJson(retry.getText(), enrichedEventLenientSchema);
-	if (lenient.data === null) {
-		// Try lenient on original text too
-		const lenientOriginal = tryParseJson(text, enrichedEventLenientSchema);
-		if (lenientOriginal.data === null) {
-			throw new Error(`${source}: even lenient parse failed: ${lenientOriginal.error}`);
-		}
-		lenient.data = lenientOriginal.data;
-	}
-
-	const dated = (lenient.data as Array<{ event_date: string | null }>).filter(
-		(e) => e.event_date != null && e.event_date !== "",
-	);
-	const dropped = lenient.data.length - dated.length;
-	log.info({ total: lenient.data.length, kept: dated.length, dropped }, `${source}: filtered out undated events`);
-
-	if (dated.length === 0) {
-		throw new Error(`${source}: no events with dates after filtering`);
-	}
-
-	return dated as EnrichedEvent[];
+	// 3. Still invalid — log and stop processing for this source
+	log.error({ error: second.error }, `${source}: validation failed after retry, skipping source`);
+	return [];
 }
 
 const CITY_CONFIG: Record<
@@ -199,6 +172,8 @@ Today: ${today}
 
 ## Output
 
+event_date is MANDATORY — if an event has no date, skip it entirely and substitute the next candidate from the listing.
+
 Return ONLY a JSON array (no markdown fences). Each object:
 {
   "title": "string",
@@ -281,6 +256,8 @@ Today: ${today}
 5. **Step 4 from playbook**: Parse datetime into event_date and event_time
 
 ## Output
+
+event_date is MANDATORY — if an event has no date, skip it entirely and substitute the next candidate from the listing.
 
 Return ONLY a JSON array (no markdown fences). Each object:
 {
