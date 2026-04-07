@@ -11,7 +11,7 @@ export async function replaceEventsForCity(db: TablesDB, city: string, events: E
 	const existing = await db.listRows({
 		databaseId: DB_ID,
 		tableId: TABLE_EVENTS,
-		queries: [Query.equal("city", city)],
+		queries: [Query.equal("city", city), Query.limit(100)],
 	});
 
 	for (const row of existing.rows) {
@@ -57,25 +57,30 @@ export async function replaceEventsForCity(db: TablesDB, city: string, events: E
 }
 
 export async function getLiveEventsForCity(db: TablesDB, city: string): Promise<EventArticle[]> {
-	const result = await db.listRows({
-		databaseId: DB_ID,
-		tableId: TABLE_EVENTS,
-		queries: [Query.equal("city", city)],
-	});
+	try {
+		const result = await db.listRows({
+			databaseId: DB_ID,
+			tableId: TABLE_EVENTS,
+			queries: [Query.equal("city", city), Query.limit(100)],
+		});
 
-	return result.rows.map((row: any) => ({
-		title: row.title,
-		description: row.description,
-		category: row.category,
-		event_date: row.event_date,
-		event_time: row.event_time ?? null,
-		duration: row.duration ?? null,
-		venue_name: row.venue_name ?? null,
-		venue_area: row.venue_area ?? null,
-		price: row.price ?? null,
-		source: row.source,
-		source_url: row.source_url,
-		image_url: row.image_url ?? null,
-		rank: row.rank,
-	}));
+		return result.rows.map((row: any) => ({
+			title: row.title,
+			description: row.description,
+			category: row.category,
+			event_date: row.event_date,
+			event_time: row.event_time ?? null,
+			duration: row.duration ?? null,
+			venue_name: row.venue_name ?? null,
+			venue_area: row.venue_area ?? null,
+			price: row.price ?? null,
+			source: row.source,
+			source_url: row.source_url,
+			image_url: row.image_url ?? null,
+			rank: row.rank,
+		}));
+	} catch (error) {
+		logger.warn({ city, error }, "Failed to fetch previous events, proceeding without");
+		return [];
+	}
 }
