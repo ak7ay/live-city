@@ -39,7 +39,7 @@ describe("resolveStateIds", () => {
 			}),
 		});
 
-		const { resolveStateIds } = await import("../../src/sources/lalithaa.ts");
+		const { resolveStateIds } = await import("../../src/metals/lalithaa.ts");
 		const result = await resolveStateIds(MOCK_CONFIG);
 
 		expect(result.size).toBe(2);
@@ -63,7 +63,7 @@ describe("resolveStateIds", () => {
 			}),
 		});
 
-		const { resolveStateIds } = await import("../../src/sources/lalithaa.ts");
+		const { resolveStateIds } = await import("../../src/metals/lalithaa.ts");
 		const result = await resolveStateIds(MOCK_CONFIG);
 
 		expect(result.size).toBe(1);
@@ -81,7 +81,7 @@ describe("resolveStateIds", () => {
 			statusText: "Internal Server Error",
 		});
 
-		const { resolveStateIds } = await import("../../src/sources/lalithaa.ts");
+		const { resolveStateIds } = await import("../../src/metals/lalithaa.ts");
 		await expect(resolveStateIds(MOCK_CONFIG)).rejects.toThrow();
 	});
 });
@@ -103,7 +103,7 @@ describe("fetchPrice", () => {
 			}),
 		});
 
-		const { fetchPrice } = await import("../../src/sources/lalithaa.ts");
+		const { fetchPrice } = await import("../../src/metals/lalithaa.ts");
 		const result = await fetchPrice("https://api.example.com/pricings/latest", "state-1");
 
 		expect(result).toEqual({
@@ -122,7 +122,7 @@ describe("fetchPrice", () => {
 			statusText: "Not Found",
 		});
 
-		const { fetchPrice } = await import("../../src/sources/lalithaa.ts");
+		const { fetchPrice } = await import("../../src/metals/lalithaa.ts");
 		await expect(fetchPrice("https://api.example.com/pricings/latest", "state-1")).rejects.toThrow();
 	});
 });

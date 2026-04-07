@@ -1,0 +1,10 @@
+#!/bin/sh
+
+echo "Running tests before push..."
+npm test
+if [ $? -ne 0 ]; then
+  echo "❌ Tests failed. Please fix before pushing."
+  exit 1
+fi
+
+echo "✅ All tests passed!"

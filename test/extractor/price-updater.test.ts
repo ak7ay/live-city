@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type PriceInput, type PriceRecord, updatePriceForCity } from "../../src/extractor/price-updater.js";
+import { type PriceInput, type PriceRecord, updatePriceForCity } from "../../src/extractor/metals-updater.js";
 
 vi.mock("../../src/config/logger.js", () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

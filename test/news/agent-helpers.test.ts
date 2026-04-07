@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractJson } from "../../src/news/agent.js";
+import { extractJson } from "../../src/agent/shared.js";
 
 describe("extractJson", () => {
 	it("extracts a JSON object from plain text", () => {
