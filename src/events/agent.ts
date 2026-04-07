@@ -136,26 +136,31 @@ If NO events found, return an empty array: []`);
 	}
 }
 
-// ── Phase 2a: Collect + enrich BMS events ────────────────────────────
+// ── Phase 2: Collect + enrich events from a source ───────────────────
 
-async function collectBmsEvents(city: string, today: string, cwd: string): Promise<EnrichedEvent[]> {
-	const log = logger.child({ module: "events-agent", phase: "bms" });
-	const config = CITY_CONFIG[city];
-	if (!config) throw new Error(`No city config for: ${city}`);
+interface EventSourceDef {
+	key: string;
+	label: string;
+	playbookFile: string;
+	buildPrompt: (params: {
+		city: string;
+		config: (typeof CITY_CONFIG)[string];
+		today: string;
+		playbook: string;
+	}) => string;
+}
 
-	const bmsPlaybook = readPlaybook(cwd, "playbook-bookmyshow.md");
-
-	log.info("Starting BMS collection + enrichment");
-
-	const session = await createBrowserSession(cwd, `You are a ${city} events extractor using browser tools.`);
-	try {
-		// ── Prompt 1: List + enrich ──
-		const capture = captureResponseText(session);
-		await session.prompt(`Extract and enrich the top 10 events from BookMyShow for ${city}.
+const EVENT_SOURCES: EventSourceDef[] = [
+	{
+		key: "bms",
+		label: "BMS",
+		playbookFile: "playbook-bookmyshow.md",
+		buildPrompt: ({ city, config, today, playbook }) =>
+			`Extract and enrich the top 10 events from BookMyShow for ${city}.
 
 Follow this playbook:
 
-${bmsPlaybook}
+${playbook}
 
 City slug: ${config.bms_slug}
 Today: ${today}
@@ -188,53 +193,18 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "source": "bookmyshow",
   "source_url": "string",
   "image_url": "string or null"
-}`);
-		capture.stop();
-
-		const events = await validateEnrichedEvents(session, capture.getText(), log, "BMS");
-		log.info({ count: events.length }, "BMS events collected and enriched");
-
-		// ── Prompt 2: Playbook feedback ──
-		log.info("Requesting BMS playbook feedback");
-		const feedbackCapture = captureResponseText(session);
-		await session.prompt(`Review your session. If you encountered issues with the playbook, edit the file directly:
-
-- Broken selectors (CSS selector or regex returned no/wrong data)
-- New quirks (unexpected page structure, changed URL patterns)
-- Better approaches (simpler selector, faster extraction)
-
-File: memory/events/playbook-bookmyshow.md
-
-If everything worked, say "No playbook changes needed."`);
-		feedbackCapture.stop();
-		log.info("BMS feedback phase complete");
-
-		return events;
-	} finally {
-		session.dispose();
-	}
-}
-
-// ── Phase 2b: Collect + enrich District events ──────────────────────
-
-async function collectDistrictEvents(city: string, today: string, cwd: string): Promise<EnrichedEvent[]> {
-	const log = logger.child({ module: "events-agent", phase: "district" });
-	const config = CITY_CONFIG[city];
-	if (!config) throw new Error(`No city config for: ${city}`);
-
-	const districtPlaybook = readPlaybook(cwd, "playbook-district.md");
-
-	log.info("Starting District collection + enrichment");
-
-	const session = await createBrowserSession(cwd, `You are a ${city} events extractor using browser tools.`);
-	try {
-		// ── Prompt 1: List + enrich ──
-		const capture = captureResponseText(session);
-		await session.prompt(`Extract and enrich the top 10 events from District.in for ${city}.
+}`,
+	},
+	{
+		key: "district",
+		label: "District",
+		playbookFile: "playbook-district.md",
+		buildPrompt: ({ city, config, today, playbook }) =>
+			`Extract and enrich the top 10 events from District.in for ${city}.
 
 Follow this playbook:
 
-${districtPlaybook}
+${playbook}
 
 City config:
 - city_slug: ${city}
@@ -273,14 +243,36 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "source": "district",
   "source_url": "string",
   "image_url": "string or null"
-}`);
+}`,
+	},
+];
+
+async function collectSourceEvents(
+	source: EventSourceDef,
+	city: string,
+	today: string,
+	cwd: string,
+): Promise<EnrichedEvent[]> {
+	const log = logger.child({ module: "events-agent", phase: source.key });
+	const config = CITY_CONFIG[city];
+	if (!config) throw new Error(`No city config for: ${city}`);
+
+	const playbook = readPlaybook(cwd, source.playbookFile);
+
+	log.info(`Starting ${source.label} collection + enrichment`);
+
+	const session = await createBrowserSession(cwd, `You are a ${city} events extractor using browser tools.`);
+	try {
+		// ── Prompt 1: List + enrich ──
+		const capture = captureResponseText(session);
+		await session.prompt(source.buildPrompt({ city, config, today, playbook }));
 		capture.stop();
 
-		const events = await validateEnrichedEvents(session, capture.getText(), log, "District");
-		log.info({ count: events.length }, "District events collected and enriched");
+		const events = await validateEnrichedEvents(session, capture.getText(), log, source.label);
+		log.info({ count: events.length }, `${source.label} events collected and enriched`);
 
 		// ── Prompt 2: Playbook feedback ──
-		log.info("Requesting District playbook feedback");
+		log.info(`Requesting ${source.label} playbook feedback`);
 		const feedbackCapture = captureResponseText(session);
 		await session.prompt(`Review your session. If you encountered issues with the playbook, edit the file directly:
 
@@ -288,11 +280,11 @@ Return ONLY a JSON array (no markdown fences). Each object:
 - New quirks (unexpected page structure, changed URL patterns)
 - Better approaches (simpler selector, faster extraction)
 
-File: memory/events/playbook-district.md
+File: memory/events/${source.playbookFile}
 
 If everything worked, say "No playbook changes needed."`);
 		feedbackCapture.stop();
-		log.info("District feedback phase complete");
+		log.info(`${source.label} feedback phase complete`);
 
 		return events;
 	} finally {
@@ -391,13 +383,14 @@ export async function fetchEventsViaAgent(city: string): Promise<EventArticle[]>
 	log.info("Phase 1: Collecting news events");
 	const newsEvents = await collectNewsEvents(city, today, cwd);
 
-	// Phase 2a: Collect + enrich BMS events (browser)
-	log.info("Phase 2a: Collecting BMS events");
-	const bmsEvents = await collectBmsEvents(city, today, cwd);
-
-	// Phase 2b: Collect + enrich District events (browser)
-	log.info("Phase 2b: Collecting District events");
-	const districtEvents = await collectDistrictEvents(city, today, cwd);
+	// Phase 2: Collect + enrich ticketed events (browser, sequential per source)
+	const enrichedBySource: Record<string, EnrichedEvent[]> = {};
+	for (const source of EVENT_SOURCES) {
+		log.info(`Phase 2: Collecting ${source.label} events`);
+		enrichedBySource[source.key] = await collectSourceEvents(source, city, today, cwd);
+	}
+	const bmsEvents = enrichedBySource.bms ?? [];
+	const districtEvents = enrichedBySource.district ?? [];
 
 	// Phase 3: Rank all events (no browser)
 	log.info("Phase 3: Ranking events");
