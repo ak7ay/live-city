@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { TablesDB } from "node-appwrite";
 import {
 	captureResponseText,
 	createBrowserSession,
@@ -17,6 +18,7 @@ import {
 	type RawEvent,
 	rawEventsSchema,
 } from "./schema.js";
+import { getLiveEventsForCity } from "./store.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -298,6 +300,7 @@ async function rankEvents(
 	newsEvents: RawEvent[],
 	bmsEvents: EnrichedEvent[],
 	districtEvents: EnrichedEvent[],
+	previousEvents: EventArticle[],
 	city: string,
 	today: string,
 	cwd: string,
@@ -305,7 +308,12 @@ async function rankEvents(
 	const log = logger.child({ module: "events-agent", phase: "ranking" });
 
 	log.info(
-		{ news: newsEvents.length, bms: bmsEvents.length, district: districtEvents.length },
+		{
+			news: newsEvents.length,
+			bms: bmsEvents.length,
+			district: districtEvents.length,
+			previous: previousEvents.length,
+		},
 		"Starting ranking phase",
 	);
 
@@ -323,6 +331,14 @@ ${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
 ## Source C: District.in (pre-enriched)
 ${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
 
+## Source D: Previously Captured Events (from last run)
+${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None (first run)."}
+
+These are events from the previous run still in the database.
+- If the SAME event appears in Sources A/B/C AND Source D: use today's fresh data from A/B/C, use Source D's rank as a baseline
+- If an event appears ONLY in Source D and its event_date has NOT passed (>= ${today}): carry it forward (it dropped off the listing page but is still happening)
+- If an event in Source D has event_date before ${today} or event_date is null: drop it (expired)
+
 ## Ranking Rules
 
 1. **News events** — always include all (editorially significant)
@@ -331,8 +347,10 @@ ${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None fo
 4. **Category diversity** — aim for a mix
 5. **Cross-source boost** — same event on both BMS and District is more notable (dedup — keep the one with more data)
 6. **Skip null dates** — events without any date are low confidence
+7. **Ranking stability** — events that were highly ranked previously should stay near their rank unless a more significant event displaces them
+8. **Category consistency** — if a carried-over event had a category, keep it unless clearly wrong
 
-Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
+Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District+carried-over combined.
 
 ## News Event Transformation
 
@@ -374,7 +392,7 @@ Rank 1 = most important. News events first, then ticketed by rank.`);
 
 // ── Orchestrator ─────────────────────────────────────────────────────
 
-export async function fetchEventsViaAgent(city: string): Promise<EventArticle[]> {
+export async function fetchEventsViaAgent(db: TablesDB, city: string): Promise<EventArticle[]> {
 	const log = logger.child({ module: "events-agent", city });
 	const cwd = process.cwd();
 	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
@@ -392,9 +410,14 @@ export async function fetchEventsViaAgent(city: string): Promise<EventArticle[]>
 	const bmsEvents = enrichedBySource.bms ?? [];
 	const districtEvents = enrichedBySource.district ?? [];
 
+	// Fetch previous events from DB before ranking
+	log.info("Fetching previous events from DB");
+	const previousEvents = await getLiveEventsForCity(db, city);
+	log.info({ count: previousEvents.length }, "Previous events fetched");
+
 	// Phase 3: Rank all events (no browser)
 	log.info("Phase 3: Ranking events");
-	const events = await rankEvents(newsEvents, bmsEvents, districtEvents, city, today, cwd);
+	const events = await rankEvents(newsEvents, bmsEvents, districtEvents, previousEvents, city, today, cwd);
 
 	log.info({ count: events.length }, "All events collected");
 	return events;

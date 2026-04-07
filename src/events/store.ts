@@ -7,11 +7,11 @@ export async function replaceEventsForCity(db: TablesDB, city: string, events: E
 	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 	const fetchedAt = new Date().toISOString();
 
-	// Delete existing rows for this city and today
+	// Delete ALL existing rows for this city (replaced by merged set)
 	const existing = await db.listRows({
 		databaseId: DB_ID,
 		tableId: TABLE_EVENTS,
-		queries: [Query.equal("city", city), Query.equal("fetch_date", today)],
+		queries: [Query.equal("city", city)],
 	});
 
 	for (const row of existing.rows) {
@@ -54,4 +54,28 @@ export async function replaceEventsForCity(db: TablesDB, city: string, events: E
 	}
 
 	logger.info({ city, count: events.length }, "Inserted events");
+}
+
+export async function getLiveEventsForCity(db: TablesDB, city: string): Promise<EventArticle[]> {
+	const result = await db.listRows({
+		databaseId: DB_ID,
+		tableId: TABLE_EVENTS,
+		queries: [Query.equal("city", city)],
+	});
+
+	return result.rows.map((row: any) => ({
+		title: row.title,
+		description: row.description,
+		category: row.category,
+		event_date: row.event_date,
+		event_time: row.event_time ?? null,
+		duration: row.duration ?? null,
+		venue_name: row.venue_name ?? null,
+		venue_area: row.venue_area ?? null,
+		price: row.price ?? null,
+		source: row.source,
+		source_url: row.source_url,
+		image_url: row.image_url ?? null,
+		rank: row.rank,
+	}));
 }

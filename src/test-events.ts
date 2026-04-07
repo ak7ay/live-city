@@ -1,11 +1,17 @@
+import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
+import { loadEnv } from "./config/env.js";
 import { fetchEventsViaAgent } from "./events/agent.js";
 
 async function main() {
 	console.log("=== Testing events pipeline for bengaluru ===\n");
 
+	const env = loadEnv();
+	const client = createAppwriteClient(env);
+	const db = createTablesDB(client);
+
 	const start = Date.now();
 	try {
-		const events = await fetchEventsViaAgent("bengaluru");
+		const events = await fetchEventsViaAgent(db, "bengaluru");
 		const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
 		console.log(`\n=== RESULTS: ${events.length} events in ${elapsed}s ===\n`);

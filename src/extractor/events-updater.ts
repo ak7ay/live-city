@@ -12,7 +12,7 @@ export async function updateEventsForCity(db: TablesDB, city: string): Promise<v
 	for (let attempt = 1; attempt <= MAX_AGENT_RETRIES; attempt++) {
 		try {
 			log.info({ attempt }, "Fetching events via agent");
-			const events = await fetchEventsViaAgent(city);
+			const events = await fetchEventsViaAgent(db, city);
 			log.info({ count: events.length }, "Agent returned events, storing");
 			await replaceEventsForCity(db, city, events);
 			log.info("Events update complete");
