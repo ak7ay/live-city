@@ -167,6 +167,7 @@ The listing provides `datetime` as a single string. Parse it into event_date and
 |---------------|------------|------------|
 | `"Sat, 11 Apr, 6:30 PM"` | `"Sat, 11 Apr 2026"` | `"6:30 PM"` |
 | `"Daily, Multiple slots"` | `"Daily"` | `null` |
+| `"Daily, 12:00 PM onwards"` | `"Daily"` | `"12:00 PM"` |
 | `"Every Sun & Sat, 7:00 PM to 10:30 PM"` | `"Every Sat & Sun"` | `"7:00 PM"` |
 | `"Fri, 10 Apr – Sun, 19 Apr, 7:00 PM"` | `"Fri, 10 Apr – Sun, 19 Apr 2026"` | `"7:00 PM"` |
 

@@ -102,14 +102,21 @@ async function collectNewsEvents(city: string, today: string, cwd: string): Prom
 	const session = await createPlainSession(cwd, `You are a ${city} events extractor scanning news stories.`);
 	try {
 		const capture = captureResponseText(session);
-		await session.prompt(`Scan the following news stories from ${city} (${today}) for any civic or cultural EVENTS — festivals, inaugurations, exhibitions, public celebrations, sporting events, government ceremonies, cultural programs, etc.
+		await session.prompt(`Scan the following news stories from ${city} (${today}) for UPCOMING events that people can voluntarily attend or participate in — festivals, concerts, exhibitions, inaugurations, public celebrations, cultural programs, sporting events (upcoming, not results), etc.
 
 ## Stories
 ${storiesContent}
 
 ## Instructions
-- Only extract stories that describe an upcoming or ongoing EVENT (something people can attend or witness)
-- Skip regular news (crime reports, political statements, weather forecasts, etc.)
+- Only extract stories about FUTURE or ONGOING events (event_date >= ${today}) that a resident would want to attend
+- The event must be something a person can GO TO — a place, a time, an activity
+- News stories are NOT curated event listings, so most stories will NOT be events. Be strict:
+- SKIP these entirely:
+  - Strikes, bandhs, protests, shutdowns (these are disruptions, not events to attend)
+  - Past events or match results (already happened)
+  - Government policy announcements, political statements
+  - Crime reports, accidents, weather forecasts
+  - Exam results, school/college administrative news
 - For each event found, extract what you can from the story text
 
 ## Output
@@ -174,7 +181,6 @@ Today: ${today}
    - Events with dates rank higher than null-date events
    - Time proximity (sooner = higher, today is ${today})
    - Significance (big-name concerts, major sports > small bar gigs)
-   - Category diversity (aim for a mix)
 3. **Step 2 from playbook**: Visit each selected event's detail page and enrich with description, full date, time, duration, venue details
 
 ## Output
@@ -223,7 +229,6 @@ Today: ${today}
    - Events with dates rank higher than null-date events
    - Time proximity (sooner = higher, today is ${today})
    - Significance (big-name concerts, major sports > small bar gigs)
-   - Category diversity (aim for a mix)
 4. **Step 3 from playbook**: Visit each selected event's detail page and enrich with description, duration, etc.
 5. **Step 4 from playbook**: Parse datetime into event_date and event_time
 
@@ -281,6 +286,9 @@ async function collectSourceEvents(
 - Broken selectors (CSS selector or regex returned no/wrong data)
 - New quirks (unexpected page structure, changed URL patterns)
 - Better approaches (simpler selector, faster extraction)
+- Remove unused, outdated, or confusing details that cause more harm than good
+
+Keep the playbook concise — only actionable notes that help future runs. Don't let it grow unboundedly.
 
 File: memory/events/${source.playbookFile}
 
@@ -322,13 +330,13 @@ async function rankEvents(
 		const capture = captureResponseText(session);
 		await session.prompt(`You have pre-enriched event listings from 3 sources for ${city}. Rank them and output the final list.
 
-## Source A: News Events (HIGH PRIORITY — include all)
+## Source A: News Events
 ${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
 
-## Source B: BookMyShow (pre-enriched)
+## Source B: BookMyShow
 ${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
 
-## Source C: District.in (pre-enriched)
+## Source C: District.in
 ${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
 
 ## Source D: Previously Captured Events (from last run)
@@ -341,14 +349,13 @@ These are events from the previous run still in the database.
 
 ## Ranking Rules
 
-1. **News events** — always include all (editorially significant)
+1. **News events** — unlike BMS/District which are curated event platforms, news-sourced events have higher weightage since it might cater for larger public to appear in news. Include only if genuinely attendable (festivals, exhibitions, public celebrations). Drop strikes, bandhs, protests, past match results, or anything a person cannot voluntarily go to
 2. **Time proximity** — events happening sooner rank higher (today is ${today})
 3. **Significance** — big concerts, major sports, large festivals > small bar gigs
-4. **Category diversity** — aim for a mix
-5. **Cross-source boost** — same event on both BMS and District is more notable (dedup — keep the one with more data)
-6. **Skip null dates** — events without any date are low confidence
-7. **Ranking stability** — events that were highly ranked previously should stay near their rank unless a more significant event displaces them
-8. **Category consistency** — if a carried-over event had a category, keep it unless clearly wrong
+4. **Cross-source boost** — same event on both BMS and District is more notable (dedup — keep the one with more data)
+5. **Skip null dates** — events without any date are low confidence
+6. **Ranking stability** — events that were highly ranked previously should stay near their rank unless a more significant event displaces them
+7. **Category consistency** — if a carried-over event had a category, keep it unless clearly wrong
 
 Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District+carried-over combined.
 
