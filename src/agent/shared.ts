@@ -119,7 +119,7 @@ export function extractJson(text: string): string | null {
 
 // ── Validation with retry ────────────────────────────────────────────
 
-function tryParseJson(
+export function tryParseJson(
 	text: string,
 	schema: { safeParse: (v: unknown) => any },
 ): { data: any; error: null } | { data: null; error: string } {

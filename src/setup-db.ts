@@ -415,7 +415,7 @@ async function createEventsColumns(db: TablesDB): Promise<void> {
 					tableId: TABLE_EVENTS,
 					key: "event_date",
 					size: 128,
-					required: false,
+					required: true,
 				}),
 		},
 		{

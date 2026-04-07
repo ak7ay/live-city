@@ -50,7 +50,7 @@ Then reload the page:
 
 ```bash
 browser-nav "https://www.district.in/events/"
-sleep 3
+sleep 4
 ```
 
 Verify the page shows the correct city in the top-left header (e.g., "Bangalore" instead of "Gurugram").
@@ -59,7 +59,14 @@ Verify the page shows the correct city in the top-left header (e.g., "Bangalore"
 
 ## Step 2: Extract listing
 
-Extract all event cards.
+First scroll to the bottom to trigger lazy-loading of event cards, then wait:
+
+```bash
+browser-eval 'window.scrollTo(0, document.body.scrollHeight)'
+sleep 2
+```
+
+Then extract all event cards:
 
 ```bash
 browser-eval '(function() {
@@ -110,7 +117,7 @@ browser-eval '(function() {
     if (end < 0) end = ai + 1000;
     desc = text.slice(ai + 5, end).replace(/\n{3,}/g, "\n\n").trim();
   }
-  var durMatch = text.match(/Duration\s+([\d]+\s+\w+)/);
+  var durMatch = text.match(/Duration\s+([^\n]+)/);
   var langMatch = text.match(/Event will be in\s+(.+)/);
   return JSON.stringify({
     description: desc.slice(0, 500),
@@ -175,3 +182,7 @@ Add the current year if not present. The detail page may have a more specific da
 - District.in has NO explicit category — you must infer it.
 - Images use `media.insider.in` CDN.
 - Recurring events ("Daily", "Every Sat") appear — these are valid events.
+- City-slug URL patterns (e.g. `https://www.district.in/bengaluru/events/`) return a 404 — always use `https://www.district.in/events/` and rely solely on the cookie for city selection.
+- The event cards are lazy-loaded by React and won't appear in the DOM until the page is scrolled. Always scroll to the bottom and wait before running the extraction selector, otherwise it returns `[]`.
+- Detail pages occasionally redirect back to the listing on first load (observed with recurring events). If `text.indexOf("About")` returns -1 or description is empty, re-navigate with `sleep 3` and retry.
+- Venue city suffix is sometimes duplicated as the same spelling (e.g. `"Bangalore, Bangalore"`) rather than `"Bangalore, Bengaluru"` — the trailing-city trim logic handles both cases correctly.

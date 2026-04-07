@@ -52,7 +52,7 @@ browser-eval '(function() {
 })()'
 ```
 
-This gives ~15-20 events sorted by BMS popularity. Events without a `date` (null) are further down the ranking — skip them.
+This gives ~15-20 events sorted by BMS popularity. Events without a `date` (null) are further down the ranking. **Do not skip them outright** — their detail pages often have a valid date. Prefer dated events for ranking, but enrich null-date events if needed to fill your top 10 and check the detail page before discarding.
 
 ---
 
@@ -60,13 +60,13 @@ This gives ~15-20 events sorted by BMS popularity. Events without a `date` (null
 
 For each event you want to include, visit its URL and extract the detail fields the frontend needs.
 
-Navigate to the event page:
+Navigate to the event page — **run nav and eval as separate commands**, never chained with `&&`. BMS pages are slow; `sleep 2` is not enough:
 ```bash
 browser-nav "{event_url}"
-sleep 2
+sleep 4
 ```
 
-Then extract structured data:
+Then extract structured data (always include `title` and `url` to verify you're on the right page — stale tab content is a known issue, see Quirks):
 ```bash
 browser-eval '(function() {
   var text = document.body.innerText;
@@ -74,7 +74,7 @@ browser-eval '(function() {
   var ai = text.indexOf("About The Event");
   var rm = text.indexOf("Read More", ai > 0 ? ai : 0);
   if (ai >= 0) {
-    var sentinels = ["Read More", "Global Event", "Artists", "Terms & Conditions", "You May Also Like"];
+    var sentinels = ["Read More", "See More", "Global Event", "Artists", "Terms & Conditions", "You May Also Like"];
     var end = -1;
     for (var s = 0; s < sentinels.length; s++) {
       var si = text.indexOf(sentinels[s], ai + 15);
@@ -86,6 +86,8 @@ browser-eval '(function() {
   var info = text.match(/((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}\s+\w+\s+\d{4})\n(\d{1,2}:\d{2}\s*[AP]M)\n([\d]+\s+\w+)/);
   var venue = text.match(/(?:Hours?|yrs[+ ]*)\n(?:.*\n){0,3}?([^:\n]+:\s*[^\n]+)\n/);
   return JSON.stringify({
+    title: document.querySelector("h1") ? document.querySelector("h1").innerText : null,
+    url: window.location.href,
     full_date: info ? info[1] : null,
     time: info ? info[2] : null,
     duration: info ? info[3] : null,
@@ -117,6 +119,9 @@ Examples:
 ## Quirks
 
 - Cloudflare blocks curl/fetch — MUST use browser tools.
+- **BMS pages are slow to load** — use `sleep 3–4` after `browser-nav`, not `sleep 2`. Pages appear to navigate successfully but JS content is still rendering.
+- **Never chain `browser-nav` and `browser-eval` in a single `&&` pipeline** — if nav takes longer than the shell timeout, eval runs on whichever page the browser happens to be on. Always run nav, then sleep, then eval as separate commands. Verify with `document.title` or `window.location.href` if uncertain which page is active.
+- **Recurring/multi-slot events show far-future dates on the detail page** — e.g. a weekly club night listed as "Sun, 12 Apr onwards" may show "Sun 27 Dec 2026" on the detail page (the last scheduled slot). This makes them rank lower by proximity. Use the detail page date as-is per the authoritative rule, but be aware these events may be deprioritised in ranking.
 - "PROMOTED" events appear first — they're paid placements but real events.
 - Date in listing is partial (no year, no time). Detail page has full date + time.
 - **Detail page date is authoritative** — BMS listing dates can silently diverge from the detail page (e.g. listing shows Apr 24 but detail shows May 17 for a different city's slot of the same tour). Always prefer the detail page date.
@@ -126,3 +131,7 @@ Examples:
 - **`venue_full` can be null** on some detail pages (regex misses the block). Fall back to the listing's `venue` field in that case — it is always populated.
 - Duration may be missing for multi-day events — leave null.
 - Image URLs from the listing contain ImageKit transforms with the date baked in — use as-is.
+- **Null-date listing events still have detail-page dates** — the listing image URL encodes the date; if the image is missing (empty `image` field) the date is null in the listing, but the detail page may still have a full date. Always check the detail page.
+- **Trailing punctuation in `venue_area`** — venue strings sometimes end with a period (e.g. `"Church Street Social: Bengaluru."`). Strip trailing `.` and whitespace from both `venue_name` and `venue_area` after splitting.
+- **`event_date` must be a non-empty string** — if no date is found on either listing or detail page, drop the event and substitute the next candidate rather than emitting an empty or null date.
+- **Listing venue may have no colon separator** — e.g. `"Bhartiya Mall Of Bengaluru"` has no `: `. In this case `venue_name` = the full string and `venue_area` = null.

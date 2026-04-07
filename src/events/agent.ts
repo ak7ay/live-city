@@ -1,11 +1,18 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { captureResponseText, createBrowserSession, createPlainSession, retryValidation } from "../agent/shared.js";
+import {
+	captureResponseText,
+	createBrowserSession,
+	createPlainSession,
+	retryValidation,
+	tryParseJson,
+} from "../agent/shared.js";
 import { logger } from "../config/logger.js";
 import {
 	type EnrichedEvent,
 	type EventArticle,
+	enrichedEventSchema,
 	enrichedEventsSchema,
 	eventArticlesSchema,
 	type RawEvent,
@@ -15,6 +22,64 @@ import {
 // ── Constants ────────────────────────────────────────────────────────
 
 const TOP_TICKETED_COUNT = 10;
+
+// Lenient schema: same as enrichedEventSchema but event_date is nullable.
+// Used as fallback when agent can't fix missing dates after feedback.
+import { z } from "zod/v4";
+
+const enrichedEventLenientSchema = z.array(enrichedEventSchema.extend({ event_date: z.string().nullable() }));
+
+/**
+ * Validate enriched events with in-session feedback:
+ * 1. Strict parse (event_date required)
+ * 2. If fails → send error to agent in same session → strict parse again
+ * 3. If still fails → lenient parse → filter out events with null dates → return rest
+ */
+async function validateEnrichedEvents(
+	session: { prompt: (msg: string) => Promise<void> } & { subscribe: (cb: (event: any) => void) => () => void },
+	text: string,
+	log: { info: (...args: any[]) => void },
+	source: string,
+): Promise<EnrichedEvent[]> {
+	// 1. Strict parse
+	const first = tryParseJson(text, enrichedEventsSchema);
+	if (first.data !== null) return first.data;
+
+	// 2. Feedback to agent in same session
+	log.info({ error: first.error }, `${source}: validation failed, sending feedback to agent`);
+	const retry = captureResponseText(session);
+	await session.prompt(
+		`Your JSON had errors:\n${first.error}\n\nFix and return only the corrected JSON. No markdown fences.\nIf an event has no date, drop it and substitute the next candidate from the listing.`,
+	);
+	retry.stop();
+
+	const second = tryParseJson(retry.getText(), enrichedEventsSchema);
+	if (second.data !== null) return second.data;
+
+	// 3. Lenient fallback — parse allowing null dates, then filter them out
+	log.info(`${source}: second validation failed, falling back to lenient parse + filter`);
+	const lenient = tryParseJson(retry.getText(), enrichedEventLenientSchema);
+	if (lenient.data === null) {
+		// Try lenient on original text too
+		const lenientOriginal = tryParseJson(text, enrichedEventLenientSchema);
+		if (lenientOriginal.data === null) {
+			throw new Error(`${source}: even lenient parse failed: ${lenientOriginal.error}`);
+		}
+		lenient.data = lenientOriginal.data;
+	}
+
+	const dated = (lenient.data as Array<{ event_date: string | null }>).filter(
+		(e) => e.event_date != null && e.event_date !== "",
+	);
+	const dropped = lenient.data.length - dated.length;
+	log.info({ total: lenient.data.length, kept: dated.length, dropped }, `${source}: filtered out undated events`);
+
+	if (dated.length === 0) {
+		throw new Error(`${source}: no events with dates after filtering`);
+	}
+
+	return dated as EnrichedEvent[];
+}
 
 const CITY_CONFIG: Record<
 	string,
@@ -151,7 +216,7 @@ Return ONLY a JSON array (no markdown fences). Each object:
 }`);
 		capture.stop();
 
-		const events: EnrichedEvent[] = await retryValidation(session, capture.getText(), enrichedEventsSchema, log);
+		const events = await validateEnrichedEvents(session, capture.getText(), log, "BMS");
 		log.info({ count: events.length }, "BMS events collected and enriched");
 
 		// ── Prompt 2: Playbook feedback ──
@@ -234,7 +299,7 @@ Return ONLY a JSON array (no markdown fences). Each object:
 }`);
 		capture.stop();
 
-		const events: EnrichedEvent[] = await retryValidation(session, capture.getText(), enrichedEventsSchema, log);
+		const events = await validateEnrichedEvents(session, capture.getText(), log, "District");
 		log.info({ count: events.length }, "District events collected and enriched");
 
 		// ── Prompt 2: Playbook feedback ──
