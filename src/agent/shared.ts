@@ -3,15 +3,15 @@ import { createAgentSession, DefaultResourceLoader, SessionManager } from "@mari
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const MODEL_ID = "claude-sonnet-4-6";
-const THINKING_LEVEL = "medium";
+const MODEL_ID = "gpt-5.4-mini";
+const THINKING_LEVEL = "high";
 const MAX_VALIDATION_RETRIES = 3;
 
 // ── Model ────────────────────────────────────────────────────────────
 
 export function getAgentModel() {
-	const model = getModel("anthropic", MODEL_ID);
-	if (!model) throw new Error(`Model not found: anthropic/${MODEL_ID}`);
+	const model = getModel("openai-codex", MODEL_ID);
+	if (!model) throw new Error(`Model not found: openai-codex/${MODEL_ID}`);
 	return model;
 }
 

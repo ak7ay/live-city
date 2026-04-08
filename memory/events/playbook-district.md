@@ -53,7 +53,7 @@ browser-nav "https://www.district.in/events/"
 sleep 4
 ```
 
-Verify the page shows the correct city in the top-left header (e.g., "Bangalore" instead of "Gurugram").
+Do **not** trust the top-left header alone for city verification; it can stay on Gurugram even when the Bangalore listing is loaded. Confirm by checking the first extracted venues or `document.cookie`.
 
 ---
 
@@ -178,7 +178,7 @@ Add the current year if not present. The detail page may have a more specific da
 ## Quirks
 
 - Cookie MUST be set before navigation — without it, District.in defaults to Gurugram/Delhi.
-- Featured carousel at top may show different events than the main list. The carousel events also match the `buy-tickets` selector — this is fine, include them.
+- Featured carousel at top may show different events than the main list. The carousel events also match the `buy-tickets` selector — this is fine, include them, but dedupe by `title + datetime + venue` because the same event can appear twice with different URLs.
 - Some events from other cities leak into the listing (e.g., IPL in Delhi). Filter by venue city.
 - District.in has NO explicit category — you must infer it.
 - Images use `media.insider.in` CDN.
