@@ -35,4 +35,30 @@ src/             # extractor service
 docs/            # specs and design docs
 ```
 
+## Mac Mini Wake/Sleep Schedule
+
+The app runs on a Mac Mini with automated wake/sleep to save power:
+
+```
+6:50am  — Mac wakes (pmset repeat)
+          App resumes from sleep (process frozen, not killed)
+6:30pm  — Mac sleeps (launchd agent)
+```
+
+**Setup (one-time):**
+
+```bash
+# Disable idle sleep (only the 6:30pm job puts it to sleep)
+sudo pmset -a sleep 0
+
+# Wake at 6:50am daily
+sudo pmset repeat wakeorpoweron MTWRFSU 06:50:00
+
+# Sleep job is at ~/Library/LaunchAgents/com.livecity.sleep.plist
+# Load it with:
+launchctl load ~/Library/LaunchAgents/com.livecity.sleep.plist
+```
+
+**Verify:** `pmset -g sched` and `launchctl list | grep livecity`
+
 See [DESIGN.md](DESIGN.md) for architecture, decisions, and deployment details.
