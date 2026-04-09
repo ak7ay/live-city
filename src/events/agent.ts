@@ -23,6 +23,7 @@ import { getLiveEventsForCity } from "./store.js";
 // ── Constants ────────────────────────────────────────────────────────
 
 const TOP_TICKETED_COUNT = 10;
+const EVENT_HORIZON_DAYS = 7;
 
 /**
  * Validate enriched events with one retry:
@@ -99,18 +100,13 @@ async function collectNewsEvents(city: string, today: string, cwd: string): Prom
 	log.info({ files: storyFiles.length }, "Reading story files for event extraction");
 	const storiesContent = storyFiles.map((f) => readFileSync(f, "utf-8")).join("\n\n---\n\n");
 
-	const session = await createPlainSession(cwd, `You are a ${city} events extractor scanning news stories.`);
-	try {
-		const capture = captureResponseText(session);
-		await session.prompt(`Scan the following news stories from ${city} (${today}) for UPCOMING events that people can voluntarily attend or participate in — festivals, concerts, exhibitions, inaugurations, public celebrations, cultural programs, sporting events (upcoming, not results), etc.
+	const systemPrompt = `You are a ${city} events extractor scanning news stories.
 
-## Stories
-${storiesContent}
+## Extraction Rules
 
-## Instructions
 - Only extract stories about FUTURE or ONGOING events (event_date >= ${today}) that a resident would want to attend
 - The event must be something a person can GO TO — a place, a time, an activity
-- News stories are NOT curated event listings, so most stories will NOT be events. Be strict:
+- News stories are NOT curated event listings, so most stories will NOT be events. Be strict.
 - SKIP these entirely:
   - Strikes, bandhs, protests, shutdowns (these are disruptions, not events to attend)
   - Past events or match results (already happened)
@@ -119,7 +115,8 @@ ${storiesContent}
   - Exam results, school/college administrative news
 - For each event found, extract what you can from the story text
 
-## Output
+## Output Format
+
 Return ONLY a JSON array (no markdown fences). Each object:
 {
   "title": "event name",
@@ -134,7 +131,14 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "description": "1-2 sentence description from the story"
 }
 
-If NO events found, return an empty array: []`);
+If NO events found, return an empty array: []`;
+	const session = await createPlainSession(cwd, systemPrompt);
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(`Scan the following news stories from ${city} (${today}) for UPCOMING events that people can voluntarily attend or participate in — festivals, concerts, exhibitions, inaugurations, public celebrations, cultural programs, sporting events (upcoming, not results), etc.
+
+## Stories
+${storiesContent}`);
 		capture.stop();
 
 		const events: RawEvent[] = await retryValidation(session, capture.getText(), rawEventsSchema, log);
@@ -151,11 +155,17 @@ interface EventSourceDef {
 	key: string;
 	label: string;
 	playbookFile: string;
-	buildPrompt: (params: {
+	buildSystemPrompt: (params: {
 		city: string;
 		config: (typeof CITY_CONFIG)[string];
 		today: string;
+		maxDate: string;
 		playbook: string;
+	}) => string;
+	buildUserPrompt: (params: {
+		city: string;
+		config: (typeof CITY_CONFIG)[string];
+		today: string;
 		previousEventsFile: string;
 	}) => string;
 }
@@ -165,37 +175,21 @@ const EVENT_SOURCES: EventSourceDef[] = [
 		key: "bms",
 		label: "BMS",
 		playbookFile: "playbook-bookmyshow.md",
-		buildPrompt: ({ city, config, today, playbook, previousEventsFile }) =>
-			`Extract and enrich the top 10 events from BookMyShow for ${city}.
+		buildSystemPrompt: ({ city, today, maxDate, playbook }) =>
+			`You are a ${city} events extractor for BookMyShow.
 
-Follow this playbook:
+## Scraping Playbook
 
 ${playbook}
 
-City slug: ${config.bms_slug}
-Today: ${today}
+## Selection Rules
 
-## Previously Scraped Events (from last run)
-The top 10 events scraped from BookMyShow in the previous run are saved at:
-${previousEventsFile}
+- **HARD CUTOFF**: Only include events with event_date between ${today} and ${maxDate} (7-day window). Skip anything beyond this range.
+- Time proximity (sooner = higher, today is ${today})
+- Significance (big-name concerts, major sports > small bar gigs)
+- event_date is MANDATORY — if an event has no date, skip it entirely and substitute the next candidate from the listing.
 
-If a listing matches a previously scraped event (same source_url), reuse its
-data instead of visiting the detail page.
-Only visit detail pages for events NOT in this list.
-If the file is empty or missing, scrape all top 10 as usual.
-
-## Instructions
-
-1. **Step 1 from playbook**: Extract all listings
-2. **Select top 10**: Pick the 10 most promising events based on:
-   - Events with dates rank higher than null-date events
-   - Time proximity (sooner = higher, today is ${today})
-   - Significance (big-name concerts, major sports > small bar gigs)
-3. **Step 2 from playbook**: Visit each selected event's detail page and enrich with description, full date, time, duration, venue details
-
-## Output
-
-event_date is MANDATORY — if an event has no date, skip it entirely and substitute the next candidate from the listing.
+## Output Format
 
 Return ONLY a JSON array (no markdown fences). Each object:
 {
@@ -212,17 +206,65 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "source_url": "string",
   "image_url": "string or null"
 }`,
+		buildUserPrompt: ({ city, config, today, previousEventsFile }) =>
+			`Extract and enrich the top 10 events from BookMyShow for ${city}.
+
+City slug: ${config.bms_slug}
+Today: ${today}
+
+## Previously Scraped Events (from last run)
+The top 10 events scraped from BookMyShow in the previous run are saved at:
+${previousEventsFile}
+
+If a listing matches a previously scraped event (same source_url), reuse its
+data instead of visiting the detail page.
+Only visit detail pages for events NOT in this list.
+If the file is empty or missing, scrape all top 10 as usual.
+
+## Steps
+
+1. **Step 1 from playbook**: Extract all listings
+2. **Select top 10**: Pick the 10 most promising events based on the selection rules
+3. **Step 2 from playbook**: Visit each selected event's detail page and enrich with description, full date, time, duration, venue details`,
 	},
 	{
 		key: "district",
 		label: "District",
 		playbookFile: "playbook-district.md",
-		buildPrompt: ({ city, config, today, playbook, previousEventsFile }) =>
-			`Extract and enrich the top 10 events from District.in for ${city}.
+		buildSystemPrompt: ({ city, config, today, maxDate, playbook }) =>
+			`You are a ${city} events extractor for District.in.
 
-Follow this playbook:
+## Scraping Playbook
 
 ${playbook}
+
+## Selection Rules
+
+- **HARD CUTOFF**: Only include events with event_date between ${today} and ${maxDate} (7-day window). Skip anything beyond this range.
+- Time proximity (sooner = higher, today is ${today})
+- Significance (big-name concerts, major sports > small bar gigs)
+- Only include events in ${config.district_name}
+- event_date is MANDATORY — if an event has no date, skip it entirely and substitute the next candidate from the listing.
+
+## Output Format
+
+Return ONLY a JSON array (no markdown fences). Each object:
+{
+  "title": "string",
+  "description": "string (1-3 sentences from detail page)",
+  "category": "string (inferred per playbook guidelines)",
+  "event_date": "string (e.g. Fri, 17 Apr 2026)",
+  "event_time": "string or null",
+  "duration": "string or null",
+  "venue_name": "string (parsed from venue, see playbook)",
+  "venue_area": "string or null (parsed from venue, see playbook)",
+  "price": "string or null",
+  "source": "district",
+  "source_url": "string",
+  "image_url": "string or null"
+}`,
+		buildUserPrompt: ({ city, config, today, previousEventsFile }) =>
+			`Extract and enrich the top 10 events from District.in for ${city}.
 
 City config:
 - city_slug: ${city}
@@ -240,36 +282,13 @@ data instead of visiting the detail page.
 Only visit detail pages for events NOT in this list.
 If the file is empty or missing, scrape all top 10 as usual.
 
-## Instructions
+## Steps
 
 1. **Steps 1-2 from playbook**: Set city cookie and extract all listings
 2. **Filter**: Remove events NOT in ${config.district_name}
-3. **Select top 10**: Pick the 10 most promising events based on:
-   - Events with dates rank higher than null-date events
-   - Time proximity (sooner = higher, today is ${today})
-   - Significance (big-name concerts, major sports > small bar gigs)
+3. **Select top 10**: Pick the 10 most promising events based on the selection rules
 4. **Step 3 from playbook**: Visit each selected event's detail page and enrich with description, duration, etc.
-5. **Step 4 from playbook**: Parse datetime into event_date and event_time
-
-## Output
-
-event_date is MANDATORY — if an event has no date, skip it entirely and substitute the next candidate from the listing.
-
-Return ONLY a JSON array (no markdown fences). Each object:
-{
-  "title": "string",
-  "description": "string (1-3 sentences from detail page)",
-  "category": "string (inferred per playbook guidelines)",
-  "event_date": "string (e.g. Fri, 17 Apr 2026)",
-  "event_time": "string or null",
-  "duration": "string or null",
-  "venue_name": "string (parsed from venue, see playbook)",
-  "venue_area": "string or null (parsed from venue, see playbook)",
-  "price": "string or null",
-  "source": "district",
-  "source_url": "string",
-  "image_url": "string or null"
-}`,
+5. **Step 4 from playbook**: Parse datetime into event_date and event_time`,
 	},
 ];
 
@@ -277,6 +296,7 @@ async function collectSourceEvents(
 	source: EventSourceDef,
 	city: string,
 	today: string,
+	maxDate: string,
 	cwd: string,
 	previousEventsFile: string,
 ): Promise<EnrichedEvent[]> {
@@ -288,11 +308,12 @@ async function collectSourceEvents(
 
 	log.info(`Starting ${source.label} collection + enrichment`);
 
-	const session = await createBrowserSession(cwd, `You are a ${city} events extractor using browser tools.`);
+	const systemPrompt = source.buildSystemPrompt({ city, config, today, maxDate, playbook });
+	const session = await createBrowserSession(cwd, systemPrompt);
 	try {
 		// ── Prompt 1: List + enrich ──
 		const capture = captureResponseText(session);
-		await session.prompt(source.buildPrompt({ city, config, today, playbook, previousEventsFile }));
+		await session.prompt(source.buildUserPrompt({ city, config, today, previousEventsFile }));
 		capture.stop();
 
 		const events = await validateEnrichedEvents(session, capture.getText(), log, source.label);
@@ -345,24 +366,11 @@ async function rankEvents(
 		"Starting ranking phase",
 	);
 
-	const session = await createPlainSession(cwd, `You are a ${city} events curator.`);
-	try {
-		const capture = captureResponseText(session);
-		await session.prompt(`You have pre-enriched event listings from 3 sources for ${city}. Rank them and output the final list.
+	const systemPrompt = `You are a ${city} events curator.
 
-## Source A: News Events
-${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
+## Source D: Carry-Forward Rules
 
-## Source B: BookMyShow
-${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
-
-## Source C: District.in
-${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
-
-## Source D: Previously Captured News Events
-${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None."}
-
-These are news events from the previous run still in the database.
+Source D contains news events from the previous run still in the database.
 - If the SAME event appears in Source A AND Source D: use Source A's fresh data
 - If a news event appears ONLY in Source D and event_date >= ${today}: carry it forward
 - If event_date < ${today} or null: drop it
@@ -376,7 +384,7 @@ These are news events from the previous run still in the database.
 5. **Skip null dates** — events without any date are low confidence
 6. **Category consistency** — if a carried-over news event had a category, keep it unless clearly wrong
 
-Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
+Selection: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
 
 ## News Event Transformation
 
@@ -386,7 +394,7 @@ For news events, transform the venue field:
 - Keep description from the news event
 - Set duration to null
 
-## Output
+## Output Format
 
 Return ONLY a JSON array (no markdown fences). Each object:
 {
@@ -405,7 +413,23 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "rank": 1
 }
 
-Rank 1 = most important. News events first, then ticketed by rank.`);
+Rank 1 = most important. News events first, then ticketed by rank.`;
+	const session = await createPlainSession(cwd, systemPrompt);
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(`Rank the following pre-enriched event listings for ${city}. Today: ${today}
+
+## Source A: News Events
+${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
+
+## Source B: BookMyShow
+${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
+
+## Source C: District.in
+${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
+
+## Source D: Previously Captured News Events
+${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None."}`);
 		capture.stop();
 
 		const events: EventArticle[] = await retryValidation(session, capture.getText(), eventArticlesSchema, log);
@@ -422,6 +446,9 @@ export async function fetchEventsViaAgent(db: TablesDB, city: string): Promise<E
 	const log = logger.child({ module: "events-agent", city });
 	const cwd = process.cwd();
 	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+	const maxDateObj = new Date(today);
+	maxDateObj.setDate(maxDateObj.getDate() + EVENT_HORIZON_DAYS);
+	const maxDate = maxDateObj.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 	// Fetch previous events from DB before Phase 2
 	log.info("Fetching previous events from DB");
@@ -453,6 +480,7 @@ export async function fetchEventsViaAgent(db: TablesDB, city: string): Promise<E
 			source,
 			city,
 			today,
+			maxDate,
 			cwd,
 			previousEventsFiles[source.key] ?? "",
 		);
