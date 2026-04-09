@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TablesDB } from "node-appwrite";
@@ -156,6 +156,7 @@ interface EventSourceDef {
 		config: (typeof CITY_CONFIG)[string];
 		today: string;
 		playbook: string;
+		previousEventsFile: string;
 	}) => string;
 }
 
@@ -164,7 +165,7 @@ const EVENT_SOURCES: EventSourceDef[] = [
 		key: "bms",
 		label: "BMS",
 		playbookFile: "playbook-bookmyshow.md",
-		buildPrompt: ({ city, config, today, playbook }) =>
+		buildPrompt: ({ city, config, today, playbook, previousEventsFile }) =>
 			`Extract and enrich the top 10 events from BookMyShow for ${city}.
 
 Follow this playbook:
@@ -173,6 +174,15 @@ ${playbook}
 
 City slug: ${config.bms_slug}
 Today: ${today}
+
+## Previously Scraped Events (from last run)
+The top 10 events scraped from BookMyShow in the previous run are saved at:
+${previousEventsFile}
+
+If a listing matches a previously scraped event (same source_url), reuse its
+data instead of visiting the detail page.
+Only visit detail pages for events NOT in this list.
+If the file is empty or missing, scrape all top 10 as usual.
 
 ## Instructions
 
@@ -207,7 +217,7 @@ Return ONLY a JSON array (no markdown fences). Each object:
 		key: "district",
 		label: "District",
 		playbookFile: "playbook-district.md",
-		buildPrompt: ({ city, config, today, playbook }) =>
+		buildPrompt: ({ city, config, today, playbook, previousEventsFile }) =>
 			`Extract and enrich the top 10 events from District.in for ${city}.
 
 Follow this playbook:
@@ -220,6 +230,15 @@ City config:
 - lat: ${config.district_lat}
 - long: ${config.district_long}
 Today: ${today}
+
+## Previously Scraped Events (from last run)
+The top 10 events scraped from District.in in the previous run are saved at:
+${previousEventsFile}
+
+If a listing matches a previously scraped event (same source_url), reuse its
+data instead of visiting the detail page.
+Only visit detail pages for events NOT in this list.
+If the file is empty or missing, scrape all top 10 as usual.
 
 ## Instructions
 
@@ -259,6 +278,7 @@ async function collectSourceEvents(
 	city: string,
 	today: string,
 	cwd: string,
+	previousEventsFile: string,
 ): Promise<EnrichedEvent[]> {
 	const log = logger.child({ module: "events-agent", phase: source.key });
 	const config = CITY_CONFIG[city];
@@ -272,7 +292,7 @@ async function collectSourceEvents(
 	try {
 		// ── Prompt 1: List + enrich ──
 		const capture = captureResponseText(session);
-		await session.prompt(source.buildPrompt({ city, config, today, playbook }));
+		await session.prompt(source.buildPrompt({ city, config, today, playbook, previousEventsFile }));
 		capture.stop();
 
 		const events = await validateEnrichedEvents(session, capture.getText(), log, source.label);
@@ -404,6 +424,24 @@ export async function fetchEventsViaAgent(db: TablesDB, city: string): Promise<E
 	const cwd = process.cwd();
 	const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
+	// Fetch previous events from DB before Phase 2
+	log.info("Fetching previous events from DB");
+	const allPreviousEvents = await getLiveEventsForCity(db, city);
+	log.info({ count: allPreviousEvents.length }, "Previous events fetched");
+
+	// Filter and write previous events per source
+	const cacheDir = join(homedir(), ".cache", "events", city);
+	mkdirSync(cacheDir, { recursive: true });
+
+	const previousEventsFiles: Record<string, string> = {};
+	for (const source of EVENT_SOURCES) {
+		const sourceFilter = source.key === "bms" ? "bookmyshow" : source.key;
+		const events = allPreviousEvents.filter((e) => e.source === sourceFilter);
+		const filePath = join(cacheDir, `${sourceFilter}-previous.json`);
+		writeFileSync(filePath, JSON.stringify(events, null, 2));
+		previousEventsFiles[source.key] = filePath;
+	}
+
 	// Phase 1: Collect news events (no browser)
 	log.info("Phase 1: Collecting news events");
 	const newsEvents = await collectNewsEvents(city, today, cwd);
@@ -412,19 +450,21 @@ export async function fetchEventsViaAgent(db: TablesDB, city: string): Promise<E
 	const enrichedBySource: Record<string, EnrichedEvent[]> = {};
 	for (const source of EVENT_SOURCES) {
 		log.info(`Phase 2: Collecting ${source.label} events`);
-		enrichedBySource[source.key] = await collectSourceEvents(source, city, today, cwd);
+		enrichedBySource[source.key] = await collectSourceEvents(
+			source,
+			city,
+			today,
+			cwd,
+			previousEventsFiles[source.key] ?? "",
+		);
 	}
 	const bmsEvents = enrichedBySource.bms ?? [];
 	const districtEvents = enrichedBySource.district ?? [];
 
-	// Fetch previous events from DB before ranking
-	log.info("Fetching previous events from DB");
-	const previousEvents = await getLiveEventsForCity(db, city);
-	log.info({ count: previousEvents.length }, "Previous events fetched");
-
 	// Phase 3: Rank all events (no browser)
+	const previousNewsEvents = allPreviousEvents.filter((e) => e.source === "news");
 	log.info("Phase 3: Ranking events");
-	const events = await rankEvents(newsEvents, bmsEvents, districtEvents, previousEvents, city, today, cwd);
+	const events = await rankEvents(newsEvents, bmsEvents, districtEvents, previousNewsEvents, city, today, cwd);
 
 	log.info({ count: events.length }, "All events collected");
 	return events;
