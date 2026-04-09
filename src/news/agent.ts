@@ -132,10 +132,10 @@ Your FINAL message must be ONLY a JSON object, no markdown fences, no explanatio
   "content": "Full article body in English markdown",
   "category": "English category",
   "source": "source name(s), comma-separated if multiple",
-  "source_count": <number of sources>,
+  "source_count": number,
   "original_url": "primary article URL",
   "thumbnail_url": "thumbnail image URL",
-  "rank": <rank number>
+  "rank": number
 }`;
 }
 
