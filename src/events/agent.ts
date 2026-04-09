@@ -86,21 +86,13 @@ function readPlaybook(cwd: string, name: string): string {
 	return readFileSync(join(cwd, "memory", "events", name), "utf-8");
 }
 
-// ── Phase 1: Collect news events ─────────────────────────────────────
+// ── Prompt builders ─────────────────────────────────────────────────
 
-async function collectNewsEvents(city: string, today: string, cwd: string): Promise<RawEvent[]> {
-	const log = logger.child({ module: "events-agent", phase: "news" });
-	const storyFiles = findStoryFiles(city, today);
+// Phase 1: News extraction
 
-	if (storyFiles.length === 0) {
-		log.info("No story files found, skipping news events");
-		return [];
-	}
-
-	log.info({ files: storyFiles.length }, "Reading story files for event extraction");
-	const storiesContent = storyFiles.map((f) => readFileSync(f, "utf-8")).join("\n\n---\n\n");
-
-	const systemPrompt = `You are a ${city} events extractor scanning news stories.
+function newsExtractionSystemPrompt(city: string, today: string): string {
+	return `\
+You are a ${city} events extractor scanning news stories.
 
 ## Extraction Rules
 
@@ -132,51 +124,36 @@ Return ONLY a JSON array (no markdown fences). Each object:
 }
 
 If NO events found, return an empty array: []`;
-	const session = await createPlainSession(cwd, systemPrompt);
-	try {
-		const capture = captureResponseText(session);
-		await session.prompt(`Scan the following news stories from ${city} (${today}) for UPCOMING events that people can voluntarily attend or participate in — festivals, concerts, exhibitions, inaugurations, public celebrations, cultural programs, sporting events (upcoming, not results), etc.
+}
+
+function newsExtractionUserPrompt(city: string, today: string, storiesContent: string): string {
+	return `\
+Scan the following news stories from ${city} (${today}) for UPCOMING events that people can voluntarily attend or participate in — festivals, concerts, exhibitions, inaugurations, public celebrations, cultural programs, sporting events (upcoming, not results), etc.
 
 ## Stories
-${storiesContent}`);
-		capture.stop();
-
-		const events: RawEvent[] = await retryValidation(session, capture.getText(), rawEventsSchema, log);
-		log.info({ count: events.length }, "News events collected");
-		return events;
-	} finally {
-		session.dispose();
-	}
+${storiesContent}`;
 }
 
-// ── Phase 2: Collect + enrich events from a source ───────────────────
+// Phase 2: Source-specific scraping
 
-interface EventSourceDef {
-	key: string;
-	label: string;
-	playbookFile: string;
-	buildSystemPrompt: (params: {
-		city: string;
-		config: (typeof CITY_CONFIG)[string];
-		today: string;
-		maxDate: string;
-		playbook: string;
-	}) => string;
-	buildUserPrompt: (params: {
-		city: string;
-		config: (typeof CITY_CONFIG)[string];
-		today: string;
-		previousEventsFile: string;
-	}) => string;
+interface SourcePromptParams {
+	city: string;
+	config: (typeof CITY_CONFIG)[string];
+	today: string;
+	maxDate: string;
+	playbook: string;
 }
 
-const EVENT_SOURCES: EventSourceDef[] = [
-	{
-		key: "bms",
-		label: "BMS",
-		playbookFile: "playbook-bookmyshow.md",
-		buildSystemPrompt: ({ city, today, maxDate, playbook }) =>
-			`You are a ${city} events extractor for BookMyShow.
+interface SourceUserParams {
+	city: string;
+	config: (typeof CITY_CONFIG)[string];
+	today: string;
+	previousEventsFile: string;
+}
+
+function bmsSystemPrompt({ city, today, maxDate, playbook }: SourcePromptParams): string {
+	return `\
+You are a ${city} events extractor for BookMyShow.
 
 ## Scraping Playbook
 
@@ -205,9 +182,12 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "source": "bookmyshow",
   "source_url": "string",
   "image_url": "string or null"
-}`,
-		buildUserPrompt: ({ city, config, today, previousEventsFile }) =>
-			`Extract and enrich the top 10 events from BookMyShow for ${city}.
+}`;
+}
+
+function bmsUserPrompt({ city, config, today, previousEventsFile }: SourceUserParams): string {
+	return `\
+Extract and enrich the top 10 events from BookMyShow for ${city}.
 
 City slug: ${config.bms_slug}
 Today: ${today}
@@ -225,14 +205,12 @@ If the file is empty or missing, scrape all top 10 as usual.
 
 1. **Step 1 from playbook**: Extract all listings
 2. **Select top 10**: Pick the 10 most promising events based on the selection rules
-3. **Step 2 from playbook**: Visit each selected event's detail page and enrich with description, full date, time, duration, venue details`,
-	},
-	{
-		key: "district",
-		label: "District",
-		playbookFile: "playbook-district.md",
-		buildSystemPrompt: ({ city, config, today, maxDate, playbook }) =>
-			`You are a ${city} events extractor for District.in.
+3. **Step 2 from playbook**: Visit each selected event's detail page and enrich with description, full date, time, duration, venue details`;
+}
+
+function districtSystemPrompt({ city, config, today, maxDate, playbook }: SourcePromptParams): string {
+	return `\
+You are a ${city} events extractor for District.in.
 
 ## Scraping Playbook
 
@@ -262,9 +240,12 @@ Return ONLY a JSON array (no markdown fences). Each object:
   "source": "district",
   "source_url": "string",
   "image_url": "string or null"
-}`,
-		buildUserPrompt: ({ city, config, today, previousEventsFile }) =>
-			`Extract and enrich the top 10 events from District.in for ${city}.
+}`;
+}
+
+function districtUserPrompt({ city, config, today, previousEventsFile }: SourceUserParams): string {
+	return `\
+Extract and enrich the top 10 events from District.in for ${city}.
 
 City config:
 - city_slug: ${city}
@@ -288,7 +269,139 @@ If the file is empty or missing, scrape all top 10 as usual.
 2. **Filter**: Remove events NOT in ${config.district_name}
 3. **Select top 10**: Pick the 10 most promising events based on the selection rules
 4. **Step 3 from playbook**: Visit each selected event's detail page and enrich with description, duration, etc.
-5. **Step 4 from playbook**: Parse datetime into event_date and event_time`,
+5. **Step 4 from playbook**: Parse datetime into event_date and event_time`;
+}
+
+// Phase 3: Ranking
+
+function rankingSystemPrompt(city: string, today: string): string {
+	return `\
+You are a ${city} events curator.
+
+## Source D: Carry-Forward Rules
+
+Source D contains news events from the previous run still in the database.
+- If the SAME event appears in Source A AND Source D: use Source A's fresh data
+- If a news event appears ONLY in Source D and event_date >= ${today}: carry it forward
+- If event_date < ${today} or null: drop it
+
+## Ranking Rules
+
+1. **News events** — unlike BMS/District which are curated event platforms, news-sourced events have higher weightage since it might cater for larger public to appear in news. Include only if genuinely attendable (festivals, exhibitions, public celebrations). Drop strikes, bandhs, protests, past match results, or anything a person cannot voluntarily go to
+2. **Time proximity** — events happening sooner rank higher (today is ${today})
+3. **Significance** — big concerts, major sports, large festivals > small bar gigs
+4. **Cross-source boost** — same event on both BMS and District is more notable (dedup — keep the one with more data)
+5. **Skip null dates** — events without any date are low confidence
+6. **Category consistency** — if a carried-over news event had a category, keep it unless clearly wrong
+
+Selection: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
+
+## News Event Transformation
+
+For news events, transform the venue field:
+- Use the venue string as venue_name, set venue_area to null if no area info is embedded
+- If the venue contains a comma or colon separator, split into venue_name and venue_area
+- Keep description from the news event
+- Set duration to null
+
+## Output Format
+
+Return ONLY a JSON array (no markdown fences). Each object:
+{
+  "title": "string",
+  "description": "string (1-3 sentences)",
+  "category": "string",
+  "event_date": "string (e.g. Fri, 17 Apr 2026)",
+  "event_time": "string or null",
+  "duration": "string or null",
+  "venue_name": "string or null",
+  "venue_area": "string or null",
+  "price": "string or null",
+  "source": "news | bookmyshow | district",
+  "source_url": "string",
+  "image_url": "string or null",
+  "rank": 1
+}
+
+Rank 1 = most important. News events first, then ticketed by rank.`;
+}
+
+function rankingUserPrompt(
+	city: string,
+	today: string,
+	newsEvents: RawEvent[],
+	bmsEvents: EnrichedEvent[],
+	districtEvents: EnrichedEvent[],
+	previousEvents: EventArticle[],
+): string {
+	return `\
+Rank the following pre-enriched event listings for ${city}. Today: ${today}
+
+## Source A: News Events
+${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
+
+## Source B: BookMyShow
+${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
+
+## Source C: District.in
+${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
+
+## Source D: Previously Captured News Events
+${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None."}`;
+}
+
+// ── Phase 1: Collect news events ─────────────────────────────────────
+
+async function collectNewsEvents(city: string, today: string, cwd: string): Promise<RawEvent[]> {
+	const log = logger.child({ module: "events-agent", phase: "news" });
+	const storyFiles = findStoryFiles(city, today);
+
+	if (storyFiles.length === 0) {
+		log.info("No story files found, skipping news events");
+		return [];
+	}
+
+	log.info({ files: storyFiles.length }, "Reading story files for event extraction");
+	const storiesContent = storyFiles.map((f) => readFileSync(f, "utf-8")).join("\n\n---\n\n");
+
+	const session = await createPlainSession(cwd, newsExtractionSystemPrompt(city, today));
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(newsExtractionUserPrompt(city, today, storiesContent));
+		capture.stop();
+
+		const events: RawEvent[] = await retryValidation(session, capture.getText(), rawEventsSchema, log);
+		log.info({ count: events.length }, "News events collected");
+		return events;
+	} finally {
+		session.dispose();
+	}
+}
+
+// ── Phase 2: Collect + enrich events from a source ───────────────────
+
+interface EventSourceDef {
+	key: string;
+	label: string;
+	playbookFile: string;
+	buildSystemPrompt: (params: SourcePromptParams) => string;
+	buildUserPrompt: (params: SourceUserParams) => string;
+}
+
+const EVENT_SOURCES: EventSourceDef[] = [
+	{
+		key: "bms",
+		label: "BMS",
+		playbookFile: "playbook-bookmyshow.md",
+		buildSystemPrompt: bmsSystemPrompt,
+		buildUserPrompt: bmsUserPrompt,
+	},
+	{
+		key: "district",
+		label: "District",
+		playbookFile: "playbook-district.md",
+		buildSystemPrompt: districtSystemPrompt,
+		buildUserPrompt: districtUserPrompt,
 	},
 ];
 
@@ -366,70 +479,10 @@ async function rankEvents(
 		"Starting ranking phase",
 	);
 
-	const systemPrompt = `You are a ${city} events curator.
-
-## Source D: Carry-Forward Rules
-
-Source D contains news events from the previous run still in the database.
-- If the SAME event appears in Source A AND Source D: use Source A's fresh data
-- If a news event appears ONLY in Source D and event_date >= ${today}: carry it forward
-- If event_date < ${today} or null: drop it
-
-## Ranking Rules
-
-1. **News events** — unlike BMS/District which are curated event platforms, news-sourced events have higher weightage since it might cater for larger public to appear in news. Include only if genuinely attendable (festivals, exhibitions, public celebrations). Drop strikes, bandhs, protests, past match results, or anything a person cannot voluntarily go to
-2. **Time proximity** — events happening sooner rank higher (today is ${today})
-3. **Significance** — big concerts, major sports, large festivals > small bar gigs
-4. **Cross-source boost** — same event on both BMS and District is more notable (dedup — keep the one with more data)
-5. **Skip null dates** — events without any date are low confidence
-6. **Category consistency** — if a carried-over news event had a category, keep it unless clearly wrong
-
-Selection: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
-
-## News Event Transformation
-
-For news events, transform the venue field:
-- Use the venue string as venue_name, set venue_area to null if no area info is embedded
-- If the venue contains a comma or colon separator, split into venue_name and venue_area
-- Keep description from the news event
-- Set duration to null
-
-## Output Format
-
-Return ONLY a JSON array (no markdown fences). Each object:
-{
-  "title": "string",
-  "description": "string (1-3 sentences)",
-  "category": "string",
-  "event_date": "string (e.g. Fri, 17 Apr 2026)",
-  "event_time": "string or null",
-  "duration": "string or null",
-  "venue_name": "string or null",
-  "venue_area": "string or null",
-  "price": "string or null",
-  "source": "news | bookmyshow | district",
-  "source_url": "string",
-  "image_url": "string or null",
-  "rank": 1
-}
-
-Rank 1 = most important. News events first, then ticketed by rank.`;
-	const session = await createPlainSession(cwd, systemPrompt);
+	const session = await createPlainSession(cwd, rankingSystemPrompt(city, today));
 	try {
 		const capture = captureResponseText(session);
-		await session.prompt(`Rank the following pre-enriched event listings for ${city}. Today: ${today}
-
-## Source A: News Events
-${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
-
-## Source B: BookMyShow
-${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
-
-## Source C: District.in
-${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
-
-## Source D: Previously Captured News Events
-${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None."}`);
+		await session.prompt(rankingUserPrompt(city, today, newsEvents, bmsEvents, districtEvents, previousEvents));
 		capture.stop();
 
 		const events: EventArticle[] = await retryValidation(session, capture.getText(), eventArticlesSchema, log);

@@ -18,26 +18,19 @@ function createWorkspace(city: string, today: string): string {
 	return dir;
 }
 
-// ── Phase 1: Extract ─────────────────────────────────────────────────
+// ── Prompt builders ─────────────────────────────────────────────────
 
-async function runPhase1(source: string, city: string, playbook: string, today: string, cwd: string): Promise<void> {
-	const log = logger.child({ module: "news-agent", phase: 1, source });
-	const outputFile = `stories-${source}.md`;
-	log.info("Starting phase 1 extraction");
-
-	const session = await createPlainSession(cwd, `You are a ${city} news extractor for ${source}.`);
-	try {
-		const capture = captureResponseText(session);
-		await session.prompt(`You are extracting today's news stories from the "${source}" source for ${city}.
+function extractionSystemPrompt(city: string, source: string, playbook: string, today: string): string {
+	return `\
+You are a ${city} news extractor for ${source}.
 
 ## Playbook
+
 ${playbook}
 
-## Instructions
+## Output Format
 
-1. Use the playbook above to fetch the LISTING from the "${source}" source only. Use bash with curl.
-2. Translate ALL headlines and summaries to English.
-3. Write a file called \`stories-${source}.md\` in the current directory with this exact format:
+Write a file called \`stories-${source}.md\` in the current directory with this exact format:
 
 \`\`\`
 # ${source} — ${city} Stories (${today})
@@ -52,8 +45,128 @@ ${playbook}
 ...
 \`\`\`
 
-Include EVERY story from the listing. Do not skip any.
-Today's date: ${today}`);
+Include EVERY story from the listing. Do not skip any.`;
+}
+
+function extractionUserPrompt(source: string, city: string, today: string): string {
+	return `\
+Extract today's news stories from the "${source}" source for ${city}.
+Today's date: ${today}
+
+## Steps
+
+1. Use the playbook to fetch the LISTING from the "${source}" source only. Use bash with curl.
+2. Translate ALL headlines and summaries to English.
+3. Write the output file in the format specified.`;
+}
+
+function selectionSystemPrompt(city: string): string {
+	return `\
+You are a ${city} news editor selecting the top stories.
+
+## Ranking Criteria
+
+- Cross-source stories (appearing in 2+ sources) rank HIGHER than single-source stories
+- Among equal source_count, prefer stories with higher public impact/importance
+- Use category diversity as a tiebreaker — avoid clustering same-category stories
+
+## Output Format
+
+Your FINAL message must be ONLY a JSON array with exactly ${STORY_COUNT} objects, no markdown fences, no explanation:
+
+[
+  {
+    "rank": 1,
+    "headline_en": "English headline",
+    "summary_en": "1-2 sentence English summary",
+    "category_en": "English category",
+    "sources": [
+      { "name": "publictv", "url": "https://...", "source_id": "12345" },
+      { "name": "tv9kannada", "url": "https://...", "source_id": null }
+    ]
+  }
+]
+
+- rank: 1 = most important
+- sources: array of all sources where this story appeared, with article URL and source-specific ID (null if none)
+- For cross-source stories: include ALL source entries`;
+}
+
+function selectionUserPrompt(city: string, sourceFiles: string[]): string {
+	return `\
+Select the top ${STORY_COUNT} news stories for ${city} from multiple sources.
+
+## Source Files
+The following files are in the current directory. Read them all first:
+${sourceFiles.map((f) => `- ${f}`).join("\n")}
+
+## Steps
+
+1. **Read** all source files listed above using the read tool.
+2. **Cross-source match**: Identify stories that appear in multiple sources (same event, even if worded differently). Mark each story's source_count.
+3. **Pick the top ${STORY_COUNT}** using the ranking criteria.`;
+}
+
+function translationSystemPrompt(city: string, playbook: string): string {
+	return `\
+You are a ${city} news translator and content extractor.
+
+## Playbook
+
+${playbook}
+
+## Translation Rules
+
+- Headline: concise, newspaper-style
+- Summary: 1-2 sentences capturing key facts
+- Content: full article body as clean markdown (## for subheadings, paragraphs, no HTML)
+- Category: translate the source's category tag
+
+## Output Format
+
+Your FINAL message must be ONLY a JSON object, no markdown fences, no explanation:
+
+{
+  "headline": "English headline",
+  "summary": "1-2 sentence English summary",
+  "content": "Full article body in English markdown",
+  "category": "English category",
+  "source": "source name(s), comma-separated if multiple",
+  "source_count": <number of sources>,
+  "original_url": "primary article URL",
+  "thumbnail_url": "thumbnail image URL",
+  "rank": <rank number>
+}`;
+}
+
+function translationUserPrompt(city: string, selectionJson: string, sourcesLength: number, rank: number): string {
+	return `\
+Fetch and translate the following news article for ${city}.
+
+## Selected Story
+${selectionJson}
+
+## Steps
+
+1. Fetch the FULL article content from the source(s) listed above.
+   - Use the playbook's source-specific instructions for fetching full articles.
+   - If multiple sources are listed, fetch from BOTH and pick the richer/more complete version.
+2. Extract the thumbnail URL following the playbook's source-specific instructions.
+3. Translate the full article content to English following the translation rules.
+4. Return the JSON output with source_count: ${sourcesLength} and rank: ${rank}.`;
+}
+
+// ── Phase 1: Extract ─────────────────────────────────────────────────
+
+async function runPhase1(source: string, city: string, playbook: string, today: string, cwd: string): Promise<void> {
+	const log = logger.child({ module: "news-agent", phase: 1, source });
+	const outputFile = `stories-${source}.md`;
+	log.info("Starting phase 1 extraction");
+
+	const session = await createPlainSession(cwd, extractionSystemPrompt(city, source, playbook, today));
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(extractionUserPrompt(source, city, today));
 		capture.stop();
 
 		const outputPath = join(cwd, outputFile);
@@ -78,44 +191,10 @@ async function runPhase2(city: string, sourceFiles: string[], cwd: string): Prom
 
 	const selectionsSchema = createNewsSelectionsSchema(STORY_COUNT);
 
-	const session = await createPlainSession(cwd, `You are a ${city} news editor selecting the top stories.`);
+	const session = await createPlainSession(cwd, selectionSystemPrompt(city));
 	try {
 		const capture = captureResponseText(session);
-		await session.prompt(`You are selecting the top ${STORY_COUNT} news stories for ${city} from multiple sources.
-
-## Source Files
-The following files are in the current directory. Read them all first:
-${sourceFiles.map((f) => `- ${f}`).join("\n")}
-
-## Steps
-
-1. **Read** all source files listed above using the read tool.
-2. **Cross-source match**: Identify stories that appear in multiple sources (same event, even if worded differently). Mark each story's source_count.
-3. **Pick the top ${STORY_COUNT}** using these ranking criteria:
-   - Cross-source stories (appearing in 2+ sources) rank HIGHER than single-source stories
-   - Among equal source_count, prefer stories with higher public impact/importance
-   - Use category diversity as a tiebreaker — avoid clustering same-category stories
-
-## Output
-
-Your FINAL message must be ONLY a JSON array with exactly ${STORY_COUNT} objects, no markdown fences, no explanation:
-
-[
-  {
-    "rank": 1,
-    "headline_en": "English headline",
-    "summary_en": "1-2 sentence English summary",
-    "category_en": "English category",
-    "sources": [
-      { "name": "publictv", "url": "https://...", "source_id": "12345" },
-      { "name": "tv9kannada", "url": "https://...", "source_id": null }
-    ]
-  }
-]
-
-- rank: 1 = most important
-- sources: array of all sources where this story appeared, with article URL and source-specific ID (null if none)
-- For cross-source stories: include ALL source entries`);
+		await session.prompt(selectionUserPrompt(city, sourceFiles));
 		capture.stop();
 
 		const selections: NewsSelection[] = await retryValidation(session, capture.getText(), selectionsSchema, log);
@@ -134,46 +213,11 @@ async function runPhase3(selection: NewsSelection, city: string, playbook: strin
 
 	const articleSchema = createNewsArticleSchema(STORY_COUNT);
 
-	const session = await createPlainSession(cwd, `You are a ${city} news translator and content extractor.`);
+	const session = await createPlainSession(cwd, translationSystemPrompt(city, playbook));
 	try {
 		const selectionJson = JSON.stringify(selection, null, 2);
-
 		const capture = captureResponseText(session);
-		await session.prompt(`You are fetching and translating a full news article for ${city}.
-
-## Playbook
-${playbook}
-
-## Selected Story
-${selectionJson}
-
-## Instructions
-
-1. Fetch the FULL article content from the source(s) listed above.
-   - Use the playbook's source-specific instructions for fetching full articles.
-   - If multiple sources are listed, fetch from BOTH and pick the richer/more complete version.
-2. Extract the thumbnail URL following the playbook's source-specific instructions.
-3. Translate the full article content to natural, readable English:
-   - Headline: concise, newspaper-style
-   - Summary: 1-2 sentences capturing key facts
-   - Content: full article body as clean markdown (## for subheadings, paragraphs, no HTML)
-   - Category: translate the source's category tag
-
-## Output
-
-Your FINAL message must be ONLY a JSON object, no markdown fences, no explanation:
-
-{
-  "headline": "English headline",
-  "summary": "1-2 sentence English summary",
-  "content": "Full article body in English markdown",
-  "category": "English category",
-  "source": "source name(s), comma-separated if multiple",
-  "source_count": ${selection.sources.length},
-  "original_url": "primary article URL",
-  "thumbnail_url": "thumbnail image URL",
-  "rank": ${selection.rank}
-}`);
+		await session.prompt(translationUserPrompt(city, selectionJson, selection.sources.length, selection.rank));
 		capture.stop();
 
 		const article: NewsArticle = await retryValidation(session, capture.getText(), articleSchema, log);
