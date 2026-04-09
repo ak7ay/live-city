@@ -42,10 +42,6 @@ async function main(): Promise<void> {
 		}
 	};
 
-	// Run once immediately on startup
-	logger.info("Running initial price fetch...");
-	await onTick();
-
 	startScheduler("lalithaa-prices", "*/10 9-16 * * *", onTick);
 
 	const newsTick = async () => {
@@ -56,8 +52,6 @@ async function main(): Promise<void> {
 		}
 	};
 
-	logger.info("Running initial news fetch...");
-	await newsTick();
 	startScheduler("bengaluru-news", "0 7,12,18 * * *", newsTick);
 
 	const eventsTick = async () => {
@@ -68,8 +62,6 @@ async function main(): Promise<void> {
 		}
 	};
 
-	logger.info("Running initial events fetch...");
-	await eventsTick();
 	startScheduler("bengaluru-events", "0 9 * * *", eventsTick);
 
 	logger.info("Price, news & events extractors running. Press Ctrl+C to stop.");
