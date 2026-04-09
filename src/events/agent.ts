@@ -359,13 +359,13 @@ ${bmsEvents.length > 0 ? JSON.stringify(bmsEvents, null, 2) : "None found."}
 ## Source C: District.in
 ${districtEvents.length > 0 ? JSON.stringify(districtEvents, null, 2) : "None found."}
 
-## Source D: Previously Captured Events (from last run)
-${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None (first run)."}
+## Source D: Previously Captured News Events
+${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None."}
 
-These are events from the previous run still in the database.
-- If the SAME event appears in Sources A/B/C AND Source D: use today's fresh data from A/B/C, use Source D's rank as a baseline
-- If an event appears ONLY in Source D and its event_date has NOT passed (>= ${today}): carry it forward (it dropped off the listing page but is still happening)
-- If an event in Source D has event_date before ${today} or event_date is null: drop it (expired)
+These are news events from the previous run still in the database.
+- If the SAME event appears in Source A AND Source D: use Source A's fresh data
+- If a news event appears ONLY in Source D and event_date >= ${today}: carry it forward
+- If event_date < ${today} or null: drop it
 
 ## Ranking Rules
 
@@ -374,10 +374,9 @@ These are events from the previous run still in the database.
 3. **Significance** — big concerts, major sports, large festivals > small bar gigs
 4. **Cross-source boost** — same event on both BMS and District is more notable (dedup — keep the one with more data)
 5. **Skip null dates** — events without any date are low confidence
-6. **Ranking stability** — events that were highly ranked previously should stay near their rank unless a more significant event displaces them
-7. **Category consistency** — if a carried-over event had a category, keep it unless clearly wrong
+6. **Category consistency** — if a carried-over news event had a category, keep it unless clearly wrong
 
-Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District+carried-over combined.
+Select: ALL news events + top ${TOP_TICKETED_COUNT} from BMS+District combined.
 
 ## News Event Transformation
 
