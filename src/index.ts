@@ -52,7 +52,7 @@ async function main(): Promise<void> {
 		}
 	};
 
-	startScheduler("bengaluru-news", "0 7,12,18 * * *", newsTick);
+	startScheduler("bengaluru-news", "0 7,18 * * *", newsTick);
 
 	const eventsTick = async () => {
 		try {
