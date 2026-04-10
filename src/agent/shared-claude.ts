@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type Options, type Query, query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { logger } from "../config/logger.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -156,16 +157,32 @@ function createSession(options: Options): Session {
 
 				if (msg.type === "result") {
 					if (msg.subtype !== "success") {
-						console.warn("[agent-claude] turn ended with error", {
-							subtype: msg.subtype,
-							errors: (msg as { errors?: unknown }).errors,
-						});
+						logger.warn(
+							{
+								module: "agent-claude",
+								subtype: msg.subtype,
+								errors: (msg as { errors?: unknown }).errors,
+							},
+							"Turn ended with error",
+						);
 					}
 					const resolver = turn.resolver;
 					turn.resolver = null;
 					turn.rejecter = null;
 					if (resolver) resolver();
 				}
+			}
+			// Loop exited cleanly (Query exhausted or disposed mid-iteration).
+			// If a turn is still in flight at this point, the SDK terminated
+			// without sending a result message — reject so the caller is not
+			// left awaiting forever. Idempotent with dispose()'s own rejection:
+			// whichever path runs first nulls turn.rejecter and the other
+			// observes null and skips.
+			const endRejecter = turn.rejecter;
+			turn.resolver = null;
+			turn.rejecter = null;
+			if (endRejecter) {
+				endRejecter(new Error(disposed ? "Session disposed" : "Session ended unexpectedly"));
 			}
 		} catch (err) {
 			const rejecter = turn.rejecter;
@@ -214,6 +231,15 @@ function createSession(options: Options): Session {
 		dispose(): void {
 			if (disposed) return;
 			disposed = true;
+			// Reject any in-flight prompt synchronously so the caller is not
+			// left awaiting a promise that will never settle. Idempotent with
+			// the loop-end handler in the consumer IIFE — whichever runs
+			// first nulls turn.rejecter and the other observes null.
+			const rejecter = turn.rejecter;
+			turn.resolver = null;
+			turn.rejecter = null;
+			if (rejecter) rejecter(new Error("Session disposed"));
+			// Wake the input generator so it can return.
 			if (pullResolver) {
 				const resolve = pullResolver;
 				pullResolver = null;

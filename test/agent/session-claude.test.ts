@@ -87,6 +87,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 // Import AFTER vi.mock so the module-under-test picks up the mocked SDK.
 import { captureResponseText, createPlainSession } from "../../src/agent/shared-claude.js";
+import { logger } from "../../src/config/logger.js";
 
 // Helper: let the background consumer loop process pending messages.
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -96,7 +97,9 @@ describe("shared-claude session wrapper", () => {
 
 	beforeEach(() => {
 		currentMock = null;
-		warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		// Spy on the project pino logger (not console.warn) — that's what
+		// shared-claude uses for turn-error reporting.
+		warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
 	});
 
 	afterEach(() => {
@@ -158,15 +161,21 @@ describe("shared-claude session wrapper", () => {
 
 		expect(capture.getText()).toBe("");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
+		// Pino's call shape is (mergingObject, message). The merging object
+		// carries module + subtype + errors; the message is the human-readable
+		// label.
 		expect(warnSpy).toHaveBeenCalledWith(
-			"[agent-claude] turn ended with error",
-			expect.objectContaining({ subtype: "error_during_execution" }),
+			expect.objectContaining({
+				module: "agent-claude",
+				subtype: "error_during_execution",
+			}),
+			"Turn ended with error",
 		);
 
 		session.dispose();
 	});
 
-	it("dispose during in-flight turn: closes Query and blocks subsequent prompts", async () => {
+	it("dispose during in-flight turn: rejects in-flight prompt and blocks subsequent prompts", async () => {
 		const session = await createPlainSession("/tmp", "");
 		expect(currentMock?.getCloseCount()).toBe(0);
 
@@ -184,12 +193,28 @@ describe("shared-claude session wrapper", () => {
 		session.dispose();
 		expect(currentMock?.getCloseCount()).toBe(1);
 
-		// Subsequent prompts throw synchronously.
-		await expect(session.prompt("again")).rejects.toThrow("Session disposed");
+		// The in-flight prompt rejects with "Session disposed" instead of
+		// hanging forever — this is the dispose-leak fix from PR review.
+		await expect(inFlight).rejects.toThrow("Session disposed");
 
-		// The in-flight prompt is effectively abandoned — we don't await it
-		// to completion because the mock Query was closed without yielding
-		// a result. Catching is enough to prove dispose didn't deadlock.
-		inFlight.catch(() => {});
+		// Subsequent prompts also throw synchronously.
+		await expect(session.prompt("again")).rejects.toThrow("Session disposed");
+	});
+
+	it("Query ends without a result message: rejects in-flight prompt", async () => {
+		const session = await createPlainSession("/tmp", "");
+
+		const inFlight = session.prompt("test");
+		await tick();
+
+		// End the Query stream WITHOUT sending a result message — simulates
+		// the SDK subprocess terminating mid-turn (e.g. crash, kill, network
+		// drop). The consumer loop's loop-end handler should reject the
+		// in-flight prompt rather than leaving the caller hanging.
+		currentMock?.endStream();
+
+		await expect(inFlight).rejects.toThrow("Session ended unexpectedly");
+
+		session.dispose();
 	});
 });
