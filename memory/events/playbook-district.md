@@ -53,7 +53,7 @@ browser-nav "https://www.district.in/events/"
 sleep 4
 ```
 
-Do **not** trust the top-left header alone for city verification; it can stay on Gurugram even when the Bangalore listing is loaded. Confirm by checking the first extracted venues or `document.cookie`.
+Do **not** trust the top-left header alone for city verification; it can stay on Gurugram even when the Bangalore listing is loaded. `document.cookie` may also show a stale `www.district.in` location cookie alongside the active `.district.in` one, so verify the cookie domain with `browser-cookies.js` or confirm by the first extracted venues.
 
 ---
 
@@ -132,7 +132,7 @@ browser-eval '(function() {
 District.in venue formats:
 ```
 Phoenix Marketcity, Bengaluru
-Hard Rock Cafe | St. Marks Road, Bangalore, Bengaluru
+Hard Rock Cafe | St. Marks Road, Bangalore, Bangalore
 Meetup Point: Near Cubbon Metro, Bengaluru
 JW Marriott Hotel Bengaluru, Bengaluru
 ```
@@ -143,6 +143,7 @@ Split into venue_name and venue_area:
 
 Examples:
 - `"Hard Rock Cafe | St. Marks Road, Bangalore, Bangalore"` → name: "Hard Rock Cafe", area: "St. Marks Road, Bangalore"
+- `"Skyye | UB City, Bengaluru"` → name: "Skyye", area: "UB City"
 - `"Phoenix Marketcity, Bengaluru"` → name: "Phoenix Marketcity", area: "Bengaluru"
 
 ### Inferring category
@@ -168,7 +169,7 @@ The listing provides `datetime` as a single string. Parse it into event_date and
 | `"Sat, 11 Apr, 6:30 PM"` | `"Sat, 11 Apr 2026"` | `"6:30 PM"` |
 | `"Daily, Multiple slots"` | `"Daily"` | `null` |
 | `"Daily, 12:00 PM onwards"` | `"Daily"` | `"12:00 PM"` |
-| `"Every Sun & Sat, 7:00 PM to 10:30 PM"` | `"Every Sat & Sun"` | `"7:00 PM"` |
+| `"Every Sun & Sat, 7:00 PM to 10:30 PM"` | `"Every Sun & Sat"` | `"7:00 PM"` |
 | `"Fri, 10 Apr – Sun, 19 Apr, 7:00 PM"` | `"Fri, 10 Apr – Sun, 19 Apr 2026"` | `"7:00 PM"` |
 
 Add the current year if not present. The detail page may have a more specific date — prefer it.
@@ -179,11 +180,11 @@ Add the current year if not present. The detail page may have a more specific da
 
 - Cookie MUST be set before navigation — without it, District.in defaults to Gurugram/Delhi.
 - Featured carousel at top may show different events than the main list. The carousel events also match the `buy-tickets` selector — this is fine, include them, but dedupe by `title + datetime + venue` because the same event can appear twice with different URLs.
-- Some events from other cities leak into the listing (e.g., IPL in Delhi). Filter by venue city.
+- Some events from other cities leak into the listing (e.g., IPL in Delhi), and a few cards have stale/mismatched title vs venue data. Filter by venue city and dedupe on `title + datetime + venue`, not title alone.
 - District.in has NO explicit category — you must infer it.
 - Images use `media.insider.in` CDN.
 - Recurring events ("Daily", "Every Sat") appear — these are valid events.
 - City-slug URL patterns (e.g. `https://www.district.in/bengaluru/events/`) return a 404 — always use `https://www.district.in/events/` and rely solely on the cookie for city selection.
 - The event cards are lazy-loaded by React and won't appear in the DOM until the page is scrolled. Always scroll to the bottom and wait before running the extraction selector, otherwise it returns `[]`.
 - Detail pages occasionally redirect back to the listing on first load (observed with recurring events). If `text.indexOf("About")` returns -1 or description is empty, re-navigate with `sleep 3` and retry.
-- Venue city suffix is sometimes duplicated as the same spelling (e.g. `"Bangalore, Bangalore"`) rather than `"Bangalore, Bengaluru"` — the trailing-city trim logic handles both cases correctly.
+- Venue city suffix duplication may be same-spelling (`"Bangalore, Bangalore"`) or mixed (`"Bangalore, Bengaluru"`) — the trailing-city trim logic in Step 3 handles both.

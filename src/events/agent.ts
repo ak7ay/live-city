@@ -8,7 +8,7 @@ import {
 	createPlainSession,
 	retryValidation,
 	tryParseJson,
-} from "../agent/shared.js";
+} from "../agent/index.js";
 import { logger } from "../config/logger.js";
 import {
 	type EnrichedEvent,

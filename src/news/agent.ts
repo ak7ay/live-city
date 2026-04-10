@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { captureResponseText, createPlainSession, retryValidation } from "../agent/shared.js";
+import { captureResponseText, createPlainSession, retryValidation } from "../agent/index.js";
 import { logger } from "../config/logger.js";
 import { createNewsArticleSchema, createNewsSelectionsSchema, type NewsArticle, type NewsSelection } from "./schema.js";
 
