@@ -16,7 +16,7 @@ Navigate to the listing page and wait for content:
 
 ```bash
 browser-nav "https://in.bookmyshow.com/explore/events-{city_slug}"
-sleep 3
+sleep 4
 ```
 
 Extract all visible event cards in a single call:
@@ -72,7 +72,6 @@ browser-eval '(function() {
   var text = document.body.innerText;
   var desc = "";
   var ai = text.indexOf("About The Event");
-  var rm = text.indexOf("Read More", ai > 0 ? ai : 0);
   if (ai >= 0) {
     var sentinels = ["Read More", "See More", "Global Event", "Artists", "Terms & Conditions", "You May Also Like"];
     var end = -1;
@@ -84,11 +83,13 @@ browser-eval '(function() {
     desc = text.slice(ai + 15, end).replace(/\n{3,}/g, "\n\n").trim();
   }
   var info = text.match(/((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}\s+\w+\s+\d{4})\n(\d{1,2}:\d{2}\s*[AP]M)\n([\d]+\s+\w+)/);
+  var rangeMatch = text.match(/((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}\s+\w+\s+\d{4})\s*-\s*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}\s+\w+\s+\d{4}/);
   var venue = text.match(/(?:Hours?|yrs[+ ]*)\n(?:.*\n){0,3}?([^:\n]+:\s*[^\n]+)\n/);
   return JSON.stringify({
     title: document.querySelector("h1") ? document.querySelector("h1").innerText : null,
     url: window.location.href,
     full_date: info ? info[1] : null,
+    range_start: (!info && rangeMatch) ? rangeMatch[1] : null,
     time: info ? info[2] : null,
     duration: info ? info[3] : null,
     venue_full: venue ? venue[1].trim() : null,
@@ -119,13 +120,15 @@ Examples:
 ## Quirks
 
 - Cloudflare blocks curl/fetch — MUST use browser tools.
+- **Chrome may have no open page tab** — if `browser-nav` fails with "Cannot read properties of undefined (reading 'goto')", Chrome is running but only has extension background pages. Fix: `curl -X PUT http://localhost:9222/json/new` to open a blank tab, then retry nav.
 - **BMS pages are slow to load** — use `sleep 3–4` after `browser-nav`, not `sleep 2`. Pages appear to navigate successfully but JS content is still rendering.
 - **Never chain `browser-nav` and `browser-eval` in a single `&&` pipeline** — if nav takes longer than the shell timeout, eval runs on whichever page the browser happens to be on. Always run nav, then sleep, then eval as separate commands. Verify with `document.title` or `window.location.href` if uncertain which page is active.
+- **Recurring weekly events: detail page returns null date** — Small venue music events (e.g. weekly cafe jamming sessions) return null for both `full_date` and `range_start` on the detail page. Fall back to the listing date, which reflects the next scheduled occurrence.
 - **Recurring/multi-slot events show far-future dates on the detail page** — e.g. a weekly club night listed as "Sun, 12 Apr onwards" may show "Sun 27 Dec 2026" on the detail page (the last scheduled slot). This makes them rank lower by proximity. Use the detail page date as-is per the authoritative rule, but be aware these events may be deprioritised in ranking.
 - "PROMOTED" events appear first — they're paid placements but real events.
 - Date in listing is partial (no year, no time). Detail page has full date + time.
 - **Detail page date is authoritative** — BMS listing dates can silently diverge from the detail page (e.g. listing shows Apr 24 but detail shows May 17 for a different city's slot of the same tour). Always prefer the detail page date. **PROMOTED events are especially prone to this drift** — the promoted listing card may show a stale or wrong date while the detail page has the correct one (observed: listing showed Sat 11 Apr, detail showed Sun 26 Apr for the same event).
-- **Tour/multi-city events** have a date range block like `"Sun 12 Apr 2026 - Sat 30 May 2026"` instead of `date\ntime\nduration` on separate lines. The `info` regex returns `null` for these. Fallback: use the listing date and leave `time`/`duration` as null.
+- **Tour/multi-city events** have a date range block like `"Sun 12 Apr 2026 - Sat 30 May 2026"` instead of `date\ntime\nduration` on separate lines. The `info` regex returns `null` for these; the detail script now captures `range_start` (the start of the range) as a fallback. Use `range_start` if set, otherwise fall back to the listing date. Leave `time`/`duration` as null.
 - **Multi-batch programme events** (e.g. science workshops, skill courses with multiple cohorts) embed their dates as prose inside the description (e.g. `"I Batch: April 28 to May 02, 2026; Time: 10:30am to 12:30 pm"`) rather than in the structured block. The `info` regex returns `null`. Fallback: use the listing date; parse time from the description text if a specific batch time is visible there.
 - Some detail pages have `description` empty — use the first paragraph of visible text below the title.
 - **Description bleed**: Short descriptions may have no "Read More" sentinel and run into boilerplate sections like "Artists", "Terms & Conditions", or "You May Also Like". The updated extraction code above uses all of these as end sentinels.
