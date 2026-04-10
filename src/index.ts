@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
+import { createAppwriteClient, createMessaging, createTablesDB } from "./config/appwrite.js";
 import { loadEnv } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { loadLalithaaConfig } from "./config/source-loader.js";
@@ -13,6 +13,7 @@ async function main(): Promise<void> {
 	const env = loadEnv();
 	const client = createAppwriteClient(env);
 	const db = createTablesDB(client);
+	const messaging = createMessaging(client);
 
 	const configPath = join(import.meta.dirname, "../config/sources/lalithaa.yaml");
 	const config = loadLalithaaConfig(configPath);
@@ -30,7 +31,7 @@ async function main(): Promise<void> {
 		const results = await Promise.allSettled(
 			[...stateMap.entries()].map(async ([city, { stateId }]) => {
 				const prices = await fetchPrice(config.api_url, stateId);
-				await updatePriceForCity(db, city, config.name, prices);
+				await updatePriceForCity(db, messaging, city, config.name, prices);
 			}),
 		);
 
