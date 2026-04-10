@@ -36,6 +36,28 @@ function pricesChanged(existing: PriceRecord, incoming: PriceInput): boolean {
 	);
 }
 
+export async function fetchMostRecentRowBefore(
+	db: TablesDB,
+	city: string,
+	source: string,
+	beforeDate: string,
+): Promise<PriceRecord | undefined> {
+	const result = await db.listRows({
+		databaseId: DB_ID,
+		tableId: TABLE_METAL_PRICES,
+		queries: [
+			Query.equal("city", city),
+			Query.equal("source", source),
+			Query.lessThan("price_date", beforeDate),
+			Query.orderDesc("price_date"),
+			Query.orderDesc("$createdAt"),
+			Query.limit(1),
+		],
+	});
+
+	return result.rows[0] as unknown as PriceRecord | undefined;
+}
+
 export async function updatePriceForCity(
 	db: TablesDB,
 	city: string,

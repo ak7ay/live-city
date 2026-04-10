@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type PriceInput, type PriceRecord, updatePriceForCity } from "../../src/extractor/metals-updater.js";
+import {
+	fetchMostRecentRowBefore,
+	type PriceInput,
+	type PriceRecord,
+	updatePriceForCity,
+} from "../../src/extractor/metals-updater.js";
 
 vi.mock("../../src/config/logger.js", () => ({
 	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -90,5 +95,52 @@ describe("updatePriceForCity", () => {
 		const call = db.updateRow.mock.calls[0][0];
 		expect(call.rowId).toBe("row-123");
 		expect(call.data).toEqual({ last_checked_at: "2026-03-29T04:30:00.000Z" });
+	});
+});
+
+describe("fetchMostRecentRowBefore", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-04-10T10:00:00+05:30"));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("returns the latest row whose price_date is strictly before the given date", async () => {
+		const db = makeDb();
+		const yesterdayRow: PriceRecord = {
+			$id: "row-yesterday",
+			city: "bengaluru",
+			source: "lalithaa_jewellery",
+			gold_22k_price: 13965,
+			silver_price: 252,
+			platinum_price: 7500,
+			price_date: "2026-04-09",
+			price_changed_at: "2026-04-09T14:00:00.000Z",
+			last_checked_at: "2026-04-09T14:00:00.000Z",
+		};
+		db.listRows.mockResolvedValue({ rows: [yesterdayRow], total: 1 });
+
+		const result = await fetchMostRecentRowBefore(db as any, "bengaluru", "lalithaa_jewellery", "2026-04-10");
+
+		expect(result).toEqual(yesterdayRow);
+		expect(db.listRows).toHaveBeenCalledOnce();
+		const queries = db.listRows.mock.calls[0][0].queries;
+		// Sanity-check the query shape: must filter by city, source, and price_date < today
+		const queriesStr = JSON.stringify(queries);
+		expect(queriesStr).toContain("bengaluru");
+		expect(queriesStr).toContain("lalithaa_jewellery");
+		expect(queriesStr).toContain("2026-04-10");
+	});
+
+	it("returns undefined when no prior row exists", async () => {
+		const db = makeDb();
+		db.listRows.mockResolvedValue({ rows: [], total: 0 });
+
+		const result = await fetchMostRecentRowBefore(db as any, "bengaluru", "lalithaa_jewellery", "2026-04-10");
+
+		expect(result).toBeUndefined();
 	});
 });
