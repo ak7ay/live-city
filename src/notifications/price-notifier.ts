@@ -1,4 +1,6 @@
+import { ID, type Messaging } from "node-appwrite";
 import { cityDisplayName } from "../config/constants.js";
+import { logger } from "../config/logger.js";
 import type { PriceInput, PriceRecord } from "../extractor/metals-updater.js";
 
 export interface PriceDelta {
@@ -52,4 +54,23 @@ function formatDelta(delta: PriceDelta): string {
 export function formatNotificationBody(event: PriceChangeEvent): string {
 	const parts = event.deltas.map(formatDelta).join(" · ");
 	return `${parts} — tap to see today's price`;
+}
+
+export async function sendPriceNotification(messaging: Messaging, event: PriceChangeEvent): Promise<void> {
+	const topic = `prices-${event.city}`;
+	const title = `${event.cityDisplayName} rates updated`;
+	const body = formatNotificationBody(event);
+
+	try {
+		await messaging.createPush({
+			messageId: ID.unique(),
+			title,
+			body,
+			topics: [topic],
+		});
+		logger.info({ city: event.city, topic, deltas: event.deltas }, "Sent price push notification");
+	} catch (err) {
+		logger.error({ city: event.city, topic, deltas: event.deltas, err }, "Failed to send price push notification");
+		throw err;
+	}
 }

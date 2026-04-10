@@ -1,10 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PriceInput, PriceRecord } from "../../src/extractor/metals-updater.js";
 import {
 	buildPriceChangeEvent,
 	formatNotificationBody,
 	type PriceChangeEvent,
+	sendPriceNotification,
 } from "../../src/notifications/price-notifier.js";
+
+vi.mock("../../src/config/logger.js", () => ({
+	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 
 const priorRow: PriceRecord = {
 	$id: "row-prior",
@@ -110,5 +115,45 @@ describe("formatNotificationBody", () => {
 			deltas: [{ metal: "gold", oldPrice: 13965, newPrice: 14085.6, delta: 120.6 }],
 		});
 		expect(body).toBe("Gold ▲ ₹121/g — tap to see today's price");
+	});
+});
+
+describe("sendPriceNotification", () => {
+	function makeMessaging() {
+		return {
+			createPush: vi.fn().mockResolvedValue({}),
+		};
+	}
+
+	it("sends a push to the city-scoped topic with the formatted body", async () => {
+		const messaging = makeMessaging();
+		const event: PriceChangeEvent = {
+			city: "bengaluru",
+			cityDisplayName: "Bengaluru",
+			deltas: [{ metal: "gold", oldPrice: 13965, newPrice: 14085, delta: 120 }],
+		};
+
+		await sendPriceNotification(messaging as any, event);
+
+		expect(messaging.createPush).toHaveBeenCalledOnce();
+		const args = messaging.createPush.mock.calls[0];
+		// The call must include the topic, title, and body somewhere in its arguments.
+		const flattened = JSON.stringify(args);
+		expect(flattened).toContain("prices-bengaluru");
+		expect(flattened).toContain("Bengaluru rates updated");
+		expect(flattened).toContain("Gold ▲ ₹120/g — tap to see today's price");
+	});
+
+	it("propagates errors from the messaging client", async () => {
+		const messaging = makeMessaging();
+		messaging.createPush.mockRejectedValue(new Error("appwrite down"));
+
+		const event: PriceChangeEvent = {
+			city: "bengaluru",
+			cityDisplayName: "Bengaluru",
+			deltas: [{ metal: "gold", oldPrice: 13965, newPrice: 14085, delta: 120 }],
+		};
+
+		await expect(sendPriceNotification(messaging as any, event)).rejects.toThrow("appwrite down");
 	});
 });
