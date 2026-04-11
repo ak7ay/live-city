@@ -110,12 +110,15 @@ sleep 2
 browser-eval '(function() {
   var text = document.body.innerText;
   var desc = "";
-  var ai = text.indexOf("About");
-  var rm = text.indexOf("Read more", ai > 0 ? ai : 0);
+  // "About the Event" skips Highlights bullets that appear on some pages before the prose
+  var ai = text.indexOf("About the Event");
+  var offset = 15;
+  if (ai < 0) { ai = text.indexOf("About"); offset = 5; }
   if (ai >= 0) {
+    var rm = text.indexOf("Read more", ai);
     var end = rm > ai ? rm : text.indexOf("Things to know", ai);
     if (end < 0) end = ai + 1000;
-    desc = text.slice(ai + 5, end).replace(/\n{3,}/g, "\n\n").trim();
+    desc = text.slice(ai + offset, end).replace(/\n{3,}/g, "\n\n").trim();
   }
   var durMatch = text.match(/Duration\s+([^\n]+)/);
   var langMatch = text.match(/Event will be in\s+(.+)/);

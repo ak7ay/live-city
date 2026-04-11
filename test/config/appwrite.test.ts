@@ -1,4 +1,6 @@
+import { Client, Messaging } from "node-appwrite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMessaging } from "../../src/config/appwrite.js";
 
 describe("loadEnv", () => {
 	beforeEach(() => {
@@ -46,5 +48,18 @@ describe("loadEnv", () => {
 			APPWRITE_PROJECT_ID: "proj-123",
 			APPWRITE_API_KEY: "key-abc",
 		});
+	});
+});
+
+describe("createMessaging", () => {
+	it("returns a Messaging instance bound to the supplied client", () => {
+		const client = new Client()
+			.setEndpoint("https://example.appwrite.io/v1")
+			.setProject("test-project")
+			.setKey("test-key");
+
+		const messaging = createMessaging(client);
+
+		expect(messaging).toBeInstanceOf(Messaging);
 	});
 });

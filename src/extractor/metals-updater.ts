@@ -1,6 +1,7 @@
-import { ID, Query, type TablesDB } from "node-appwrite";
+import { ID, type Messaging, Query, type TablesDB } from "node-appwrite";
 import { DB_ID, TABLE_METAL_PRICES } from "../config/constants.js";
 import { logger } from "../config/logger.js";
+import { buildPriceChangeEvent, sendPriceNotification } from "../notifications/price-notifier.js";
 
 export interface PriceRecord {
 	$id: string;
@@ -36,8 +37,31 @@ function pricesChanged(existing: PriceRecord, incoming: PriceInput): boolean {
 	);
 }
 
+export async function fetchMostRecentRowBefore(
+	db: TablesDB,
+	city: string,
+	source: string,
+	beforeDate: string,
+): Promise<PriceRecord | undefined> {
+	const result = await db.listRows({
+		databaseId: DB_ID,
+		tableId: TABLE_METAL_PRICES,
+		queries: [
+			Query.equal("city", city),
+			Query.equal("source", source),
+			Query.lessThan("price_date", beforeDate),
+			Query.orderDesc("price_date"),
+			Query.orderDesc("$createdAt"),
+			Query.limit(1),
+		],
+	});
+
+	return result.rows[0] as unknown as PriceRecord | undefined;
+}
+
 export async function updatePriceForCity(
 	db: TablesDB,
+	messaging: Messaging,
 	city: string,
 	source: string,
 	prices: PriceInput,
@@ -76,6 +100,21 @@ export async function updatePriceForCity(
 			},
 		});
 		logger.info({ city, source, prices, action: existing ? "price_changed" : "new_row" }, "Created new price row");
+
+		// Determine prior row for delta computation: today's earlier row, or yesterday's last row.
+		const priorRow = existing ?? (await fetchMostRecentRowBefore(db, city, source, today));
+
+		if (priorRow) {
+			const event = buildPriceChangeEvent(city, priorRow, prices);
+			if (event.deltas.length > 0) {
+				try {
+					await sendPriceNotification(messaging, event);
+				} catch {
+					// sendPriceNotification already logged the error; swallow so the price-write
+					// path is never affected by push failures.
+				}
+			}
+		}
 	} else {
 		await db.updateRow({
 			databaseId: DB_ID,

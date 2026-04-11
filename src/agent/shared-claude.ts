@@ -17,7 +17,10 @@ const THINKING: NonNullable<Options["thinking"]> = {
 
 // Plain sessions: no browser; full read/write + search. Matches pi's
 // "no skills" posture while giving Claude its standard built-in toolbelt.
-const PLAIN_ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch", "TodoWrite"];
+// WebFetch deliberately omitted — its internal summarizer destroys raw
+// content (foreign-language bodies, full JSON) and it 401s on some
+// endpoints where curl works fine. Bash + curl is the substitute.
+const PLAIN_ALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "TodoWrite"];
 
 // Browser sessions: same + Skill (so browser-tools SKILL.md is invokable).
 const BROWSER_ALLOWED_TOOLS = [...PLAIN_ALLOWED_TOOLS, "Skill"];

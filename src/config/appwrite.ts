@@ -1,4 +1,4 @@
-import { Client, TablesDB } from "node-appwrite";
+import { Client, Messaging, TablesDB } from "node-appwrite";
 import type { EnvConfig } from "./env.js";
 
 export function createAppwriteClient(env: EnvConfig): Client {
@@ -10,4 +10,8 @@ export function createAppwriteClient(env: EnvConfig): Client {
 
 export function createTablesDB(client: Client): TablesDB {
 	return new TablesDB(client);
+}
+
+export function createMessaging(client: Client): Messaging {
+	return new Messaging(client);
 }
