@@ -137,11 +137,13 @@ describe("sendPriceNotification", () => {
 
 		expect(messaging.createPush).toHaveBeenCalledOnce();
 		const args = messaging.createPush.mock.calls[0];
-		// The call must include the topic, title, and body somewhere in its arguments.
+		// The call must include the topic, title, body, and deep-link data somewhere in its arguments.
 		const flattened = JSON.stringify(args);
 		expect(flattened).toContain("prices-bengaluru");
 		expect(flattened).toContain("Bengaluru rates updated");
 		expect(flattened).toContain("Gold ▲ ₹120/g — tap to see today's price");
+		expect(flattened).toContain("OPEN_TAB");
+		expect(flattened).toContain("home");
 	});
 
 	it("propagates errors from the messaging client", async () => {

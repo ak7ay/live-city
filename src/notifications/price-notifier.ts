@@ -67,6 +67,7 @@ export async function sendPriceNotification(messaging: Messaging, event: PriceCh
 			title,
 			body,
 			topics: [topic],
+			data: { OPEN_TAB: "home" },
 		});
 		logger.info({ city: event.city, topic, deltas: event.deltas }, "Sent price push notification");
 	} catch (err) {
