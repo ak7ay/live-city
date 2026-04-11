@@ -52,7 +52,15 @@ browser-eval '(function() {
 })()'
 ```
 
-This gives ~15-20 events sorted by BMS popularity. Events without a `date` (null) are further down the ranking. **Do not skip them outright** — their detail pages often have a valid date. Prefer dated events for ranking, but enrich null-date events if needed to fill your top 10 and check the detail page before discarding.
+**Then scroll to the bottom and re-extract** — the page renders a different set of ~20 events after scroll (observed: first load shows mostly workshops/activities; after scroll shows concerts and club nights). Deduplicate by URL and union both sets before selecting top 10:
+
+```bash
+browser-eval 'window.scrollTo(0, document.body.scrollHeight); "scrolled"'
+sleep 3
+# run the same browser-eval extraction script again
+```
+
+Events without a `date` (null) are further down the ranking. **Do not skip them outright** — their detail pages often have a valid date. Prefer dated events for ranking, but enrich null-date events if needed to fill your top 10 and check the detail page before discarding.
 
 ---
 
@@ -123,11 +131,12 @@ Examples:
 - **Chrome may have no open page tab** — if `browser-nav` fails with "Cannot read properties of undefined (reading 'goto')", Chrome is running but only has extension background pages. Fix: `curl -X PUT http://localhost:9222/json/new` to open a blank tab, then retry nav.
 - **BMS pages are slow to load** — use `sleep 3–4` after `browser-nav`, not `sleep 2`. Pages appear to navigate successfully but JS content is still rendering.
 - **Never chain `browser-nav` and `browser-eval` in a single `&&` pipeline** — if nav takes longer than the shell timeout, eval runs on whichever page the browser happens to be on. Always run nav, then sleep, then eval as separate commands. Verify with `document.title` or `window.location.href` if uncertain which page is active.
+- **"X Apr onwards" listing date ≠ next available slot** — Events with "onwards" in the listing date may show a much later `full_date` on the detail page (e.g. listing "Sat, 11 Apr onwards" → detail `full_date: "Sat 25 Apr 2026"`). This is a single session booked for that later date. Detail page is authoritative; if it falls outside your window, skip the event. Only use the listing date as fallback when the detail page returns `null` for both `full_date` and `range_start`.
 - **Recurring weekly events: detail page returns null date** — Small venue music events (e.g. weekly cafe jamming sessions) return null for both `full_date` and `range_start` on the detail page. Fall back to the listing date, which reflects the next scheduled occurrence.
 - **Recurring/multi-slot events show far-future dates on the detail page** — e.g. a weekly club night listed as "Sun, 12 Apr onwards" may show "Sun 27 Dec 2026" on the detail page (the last scheduled slot). This makes them rank lower by proximity. Use the detail page date as-is per the authoritative rule, but be aware these events may be deprioritised in ranking.
 - "PROMOTED" events appear first — they're paid placements but real events.
 - Date in listing is partial (no year, no time). Detail page has full date + time.
-- **Detail page date is authoritative** — BMS listing dates can silently diverge from the detail page (e.g. listing shows Apr 24 but detail shows May 17 for a different city's slot of the same tour). Always prefer the detail page date. **PROMOTED events are especially prone to this drift** — the promoted listing card may show a stale or wrong date while the detail page has the correct one (observed: listing showed Sat 11 Apr, detail showed Sun 26 Apr for the same event).
+- **Detail page date is authoritative** — BMS listing dates can silently diverge from the detail page (e.g. listing shows Apr 24 but detail shows May 17 for a different city's slot of the same tour). Always prefer the detail page date. PROMOTED events and **comedy/touring stand-up shows** are especially prone to this drift — listing cards show the next available slot for any city, but the Bengaluru detail page may be weeks or months later (observed: listing showed Sat 11 Apr, detail showed Sun 10 May; listing showed Fri 17 Apr, detail showed Sat 9 May — both non-PROMOTED shows at listing positions 2–3).
 - **Tour/multi-city events** have a date range block like `"Sun 12 Apr 2026 - Sat 30 May 2026"` instead of `date\ntime\nduration` on separate lines. The `info` regex returns `null` for these; the detail script now captures `range_start` (the start of the range) as a fallback. Use `range_start` if set, otherwise fall back to the listing date. Leave `time`/`duration` as null.
 - **Multi-batch programme events** (e.g. science workshops, skill courses with multiple cohorts) embed their dates as prose inside the description (e.g. `"I Batch: April 28 to May 02, 2026; Time: 10:30am to 12:30 pm"`) rather than in the structured block. The `info` regex returns `null`. Fallback: use the listing date; parse time from the description text if a specific batch time is visible there.
 - Some detail pages have `description` empty — use the first paragraph of visible text below the title.
