@@ -45,25 +45,25 @@ async function main(): Promise<void> {
 
 	startScheduler("lalithaa-prices", "*/10 9-16 * * *", onTick);
 
-	const newsTick = async () => {
-		try {
-			await updateNewsForCity(db, "bengaluru");
-		} catch (error) {
-			logger.error({ error }, "News update failed for bengaluru");
-		}
-	};
+	const NEWS_EVENT_CITIES = ["bengaluru", "chennai"];
 
-	startScheduler("bengaluru-news", "0 7,18 * * *", newsTick);
+	for (const city of NEWS_EVENT_CITIES) {
+		startScheduler(`${city}-news`, "0 7,18 * * *", async () => {
+			try {
+				await updateNewsForCity(db, city);
+			} catch (error) {
+				logger.error({ error, city }, "News update failed");
+			}
+		});
 
-	const eventsTick = async () => {
-		try {
-			await updateEventsForCity(db, "bengaluru");
-		} catch (error) {
-			logger.error({ error }, "Events update failed for bengaluru");
-		}
-	};
-
-	startScheduler("bengaluru-events", "0 9 * * *", eventsTick);
+		startScheduler(`${city}-events`, "0 9 * * *", async () => {
+			try {
+				await updateEventsForCity(db, city);
+			} catch (error) {
+				logger.error({ error, city }, "Events update failed");
+			}
+		});
+	}
 
 	logger.info("Price, news & events extractors running. Press Ctrl+C to stop.");
 }
