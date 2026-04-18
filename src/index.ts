@@ -47,23 +47,27 @@ async function main(): Promise<void> {
 
 	const NEWS_EVENT_CITIES = ["bengaluru", "chennai"];
 
-	for (const city of NEWS_EVENT_CITIES) {
-		startScheduler(`${city}-news`, "0 7,18 * * *", async () => {
+	// Serialize per tick so the two cities don't each spawn concurrent Claude
+	// Agent sessions — back-to-back is cheaper and keeps logs readable.
+	startScheduler("news-all-cities", "0 7,18 * * *", async () => {
+		for (const city of NEWS_EVENT_CITIES) {
 			try {
 				await updateNewsForCity(db, city);
 			} catch (error) {
 				logger.error({ error, city }, "News update failed");
 			}
-		});
+		}
+	});
 
-		startScheduler(`${city}-events`, "0 9 * * *", async () => {
+	startScheduler("events-all-cities", "0 9 * * *", async () => {
+		for (const city of NEWS_EVENT_CITIES) {
 			try {
 				await updateEventsForCity(db, city);
 			} catch (error) {
 				logger.error({ error, city }, "Events update failed");
 			}
-		});
-	}
+		}
+	});
 
 	logger.info("Price, news & events extractors running. Press Ctrl+C to stop.");
 }

@@ -19,7 +19,11 @@ def main() -> None:
     thumb = ''
     for s in schemas:
         try:
-            data = json.loads(s)
+            # NewsArticle blocks sometimes embed raw control chars inside JSON
+            # strings, causing json.loads() to fail with 'Invalid control
+            # character'. Strip bare control chars (except \t\n\r) before parsing.
+            s_clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+            data = json.loads(s_clean)
         except Exception:
             continue
         items = data if isinstance(data, list) else [data]
