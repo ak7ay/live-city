@@ -14,10 +14,24 @@ interface NewsSourceDef {
 	playbookFile: string;
 }
 
-const NEWS_SOURCES: NewsSourceDef[] = [
-	{ key: "publictv", playbookFile: "playbook-publictv.md" },
-	{ key: "tv9kannada", playbookFile: "playbook-tv9kannada.md" },
-];
+const NEWS_SOURCES_BY_CITY: Record<string, NewsSourceDef[]> = {
+	bengaluru: [
+		{ key: "publictv", playbookFile: "playbook-publictv.md" },
+		{ key: "tv9kannada", playbookFile: "playbook-tv9kannada.md" },
+	],
+	chennai: [
+		{ key: "dailythanthi", playbookFile: "playbook-dailythanthi.md" },
+		{ key: "polimer", playbookFile: "playbook-polimer.md" },
+	],
+};
+
+function sourcesForCity(city: string): NewsSourceDef[] {
+	const sources = NEWS_SOURCES_BY_CITY[city];
+	if (!sources) {
+		throw new Error(`No news sources configured for city: ${city}`);
+	}
+	return sources;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -75,9 +89,11 @@ You are a ${city} news editor selecting the top stories.
 
 ## Ranking Criteria
 
-- Cross-source stories (appearing in 2+ sources) rank HIGHER than single-source stories
-- Among equal source_count, prefer stories with higher public impact/importance
-- Use category diversity as a tiebreaker — avoid clustering same-category stories
+This is primarily a **${city} news feed** — when ${city}-local stories are available (clear dateline, event, or person/organisation tied to ${city}), lean toward surfacing them. State-wide or regional stories are a natural fill when ${city} coverage is light. National or world stories belong in the top list only when they have clear relevance to ${city} readers.
+
+Within that preference, rank by public impact. Use category diversity as a tiebreaker — avoid clustering same-category stories.
+
+If a story appears in multiple sources, include every source entry in the \`sources\` array (for attribution/deduplication), but source count does not drive the rank.
 
 ## Output Format
 
@@ -112,7 +128,7 @@ ${sourceFiles.map((f) => `- ${f}`).join("\n")}
 ## Steps
 
 1. **Read** all source files listed above using the read tool.
-2. **Cross-source match**: Identify stories that appear in multiple sources (same event, even if worded differently). Mark each story's source_count.
+2. **Identify cross-source overlap**: Note which stories appear in multiple sources so you can attribute them in the \`sources\` array and avoid listing the same event twice.
 3. **Pick the top ${STORY_COUNT}** using the ranking criteria.`;
 }
 
@@ -333,12 +349,14 @@ function buildPhase3Playbook(selection: NewsSelection, playbooks: Record<string,
 export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 	const log = logger.child({ module: "news-agent", city });
 
-	// 1. Preload per-source playbooks. Paths are resolved to absolute so agents
-	//    running in the news-cache cwd can still edit them during the feedback
-	//    turn. We hold both the path (for the feedback prompt) and the content
-	//    (for the system prompt) in Records keyed by source name.
+	// 1. Resolve the source list for this city and preload per-source playbooks.
+	//    Paths are resolved to absolute so agents running in the news-cache cwd
+	//    can still edit them during the feedback turn. We hold both the path
+	//    (for the feedback prompt) and the content (for the system prompt) in
+	//    Records keyed by source name.
+	const sources = sourcesForCity(city);
 	const playbookPaths: Record<string, string> = Object.fromEntries(
-		NEWS_SOURCES.map((s) => [s.key, resolve("memory", "news", city, s.playbookFile)]),
+		sources.map((s) => [s.key, resolve("memory", "news", city, s.playbookFile)]),
 	);
 	const playbooks: Record<string, string> = Object.fromEntries(
 		Object.entries(playbookPaths).map(([k, p]) => [k, readFileSync(p, "utf-8")]),
@@ -351,13 +369,13 @@ export async function fetchNewsViaAgent(city: string): Promise<NewsArticle[]> {
 
 	// 3. Phase 1: Extract — sequential per source, each source gets ONLY its
 	//    own playbook (no cross-source context pollution).
-	for (const source of NEWS_SOURCES) {
+	for (const source of sources) {
 		await runPhase1(source.key, city, playbooks[source.key] ?? "", playbookPaths[source.key] ?? "", today, cwd);
 	}
 	log.info("Phase 1 complete — all sources extracted");
 
 	// 4. Phase 2: Select — single call
-	const sourceFiles = NEWS_SOURCES.map((s) => `stories-${s.key}.md`);
+	const sourceFiles = sources.map((s) => `stories-${s.key}.md`);
 	const selections = await runPhase2(city, sourceFiles, cwd);
 	log.info({ count: selections.length }, "Phase 2 complete — stories selected");
 

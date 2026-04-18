@@ -45,25 +45,29 @@ async function main(): Promise<void> {
 
 	startScheduler("lalithaa-prices", "*/10 9-16 * * *", onTick);
 
-	const newsTick = async () => {
-		try {
-			await updateNewsForCity(db, "bengaluru");
-		} catch (error) {
-			logger.error({ error }, "News update failed for bengaluru");
+	const NEWS_EVENT_CITIES = ["bengaluru", "chennai"];
+
+	// Serialize per tick so the two cities don't each spawn concurrent Claude
+	// Agent sessions — back-to-back is cheaper and keeps logs readable.
+	startScheduler("news-all-cities", "0 7,18 * * *", async () => {
+		for (const city of NEWS_EVENT_CITIES) {
+			try {
+				await updateNewsForCity(db, city);
+			} catch (error) {
+				logger.error({ error, city }, "News update failed");
+			}
 		}
-	};
+	});
 
-	startScheduler("bengaluru-news", "0 7,18 * * *", newsTick);
-
-	const eventsTick = async () => {
-		try {
-			await updateEventsForCity(db, "bengaluru");
-		} catch (error) {
-			logger.error({ error }, "Events update failed for bengaluru");
+	startScheduler("events-all-cities", "0 9 * * *", async () => {
+		for (const city of NEWS_EVENT_CITIES) {
+			try {
+				await updateEventsForCity(db, city);
+			} catch (error) {
+				logger.error({ error, city }, "Events update failed");
+			}
 		}
-	};
-
-	startScheduler("bengaluru-events", "0 9 * * *", eventsTick);
+	});
 
 	logger.info("Price, news & events extractors running. Press Ctrl+C to stop.");
 }

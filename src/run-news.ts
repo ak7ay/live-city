@@ -1,6 +1,6 @@
 import { createAppwriteClient, createTablesDB } from "./config/appwrite.js";
 import { loadEnv } from "./config/env.js";
-import { updateEventsForCity } from "./extractor/events-updater.js";
+import { updateNewsForCity } from "./extractor/news-updater.js";
 
 async function main() {
 	const env = loadEnv();
@@ -9,9 +9,9 @@ async function main() {
 
 	const city = process.argv[2] ?? "bengaluru";
 
-	console.log(`Running events pipeline for ${city}...`);
-	await updateEventsForCity(db, city);
-	console.log(`Done — events inserted into Appwrite for ${city}.`);
+	console.log(`Running news pipeline for ${city}...`);
+	await updateNewsForCity(db, city);
+	console.log(`Done — news inserted into Appwrite for ${city}.`);
 }
 
 main().catch((err) => {
