@@ -7,9 +7,11 @@ async function main() {
 	const client = createAppwriteClient(env);
 	const db = createTablesDB(client);
 
-	console.log("Running events pipeline for bengaluru...");
-	await updateEventsForCity(db, "bengaluru");
-	console.log("Done — events inserted into Appwrite.");
+	const city = process.argv[2] ?? "bengaluru";
+
+	console.log(`Running events pipeline for ${city}...`);
+	await updateEventsForCity(db, city);
+	console.log(`Done — events inserted into Appwrite for ${city}.`);
 }
 
 main().catch((err) => {

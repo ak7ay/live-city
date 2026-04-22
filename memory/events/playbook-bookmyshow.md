@@ -52,13 +52,15 @@ browser-eval '(function() {
 })()'
 ```
 
-**Then scroll to the bottom and re-extract** — the page renders a different set of ~20 events after scroll (observed: first load shows mostly workshops/activities; after scroll shows concerts and club nights). Deduplicate by URL and union both sets before selecting top 10:
+**Then scroll to the bottom and re-extract** — scroll can trigger lazy-loading of additional cards. Deduplicate by URL before selecting top 10:
 
 ```bash
-browser-eval 'window.scrollTo(0, document.body.scrollHeight); "scrolled"'
+browser-eval 'window.scrollTo(0, document.body.scrollHeight)'
 sleep 3
 # run the same browser-eval extraction script again
 ```
+
+Note: scroll does not reliably produce a different set of events. In some runs the second extraction is identical to the first — that's fine, just deduplicate and proceed. The listing order can also change between extractions, and individual events may appear or disappear (the listing is dynamic). Always union both extractions by URL before selecting candidates.
 
 Events without a `date` (null) are further down the ranking. **Do not skip them outright** — their detail pages often have a valid date. Prefer dated events for ranking, but enrich null-date events if needed to fill your top 10 and check the detail page before discarding.
 
@@ -68,13 +70,26 @@ Events without a `date` (null) are further down the ranking. **Do not skip them 
 
 For each event you want to include, visit its URL and extract the detail fields the frontend needs.
 
-Navigate to the event page — **run nav and eval as separate commands**, never chained with `&&`. BMS pages are slow; `sleep 2` is not enough:
+Navigate to the event page and extract in a **single chained bash command** — BMS SPA auto-routes to recommended events after ~4–5 seconds. **`sleep 1` is sufficient and safer than `sleep 3`** — longer sleeps increase the chance of re-routing on some pages.
+
+**CRITICAL: Keep only ONE tab open during all detail visits.** When multiple tabs are open, `browser-eval` runs in an unpredictable tab (not the one just navigated), producing wrong data. Before starting detail visits, close all extras:
 ```bash
-browser-nav "{event_url}"
-sleep 4
+curl -s http://localhost:9222/json | python3 -c "
+import json,sys,urllib.request
+tabs=[t for t in json.load(sys.stdin) if t.get('type')=='page']
+[urllib.request.urlopen(f'http://localhost:9222/json/close/{t[\"id\"]}') for t in tabs[1:]]
+print('Kept:', tabs[0]['id'])
+"
 ```
 
-Then extract structured data (always include `title` and `url` to verify you're on the right page — stale tab content is a known issue, see Quirks):
+Then for each detail page (single tab only):
+```bash
+browser-nav "{event_url}" && sleep 1 && browser-eval '...'
+```
+
+Always include `title` and `url` in the eval output to verify you landed on the right page. If the URL or title doesn't match, **retry** — SPA timing issues are common. On the first retry, keep `sleep 1`. If it redirects again (possibly to a *different* wrong event), try `sleep 2` on the next attempt. Only skip after two failed attempts. Note: consecutive retries can redirect to different events each time — this is normal SPA behavior, not a broken URL.
+
+Extract structured data:
 ```bash
 browser-eval '(function() {
   var text = document.body.innerText;
@@ -129,22 +144,27 @@ Examples:
 
 - Cloudflare blocks curl/fetch — MUST use browser tools.
 - **Chrome may have no open page tab** — if `browser-nav` fails with "Cannot read properties of undefined (reading 'goto')", Chrome is running but only has extension background pages. Fix: `curl -X PUT http://localhost:9222/json/new` to open a blank tab, then retry nav.
-- **BMS pages are slow to load** — use `sleep 3–4` after `browser-nav`, not `sleep 2`. Pages appear to navigate successfully but JS content is still rendering.
-- **Never chain `browser-nav` and `browser-eval` in a single `&&` pipeline** — if nav takes longer than the shell timeout, eval runs on whichever page the browser happens to be on. Always run nav, then sleep, then eval as separate commands. Verify with `document.title` or `window.location.href` if uncertain which page is active.
+- **BMS SPA auto-routes detail pages** — After loading an event detail page, BMS navigates to recommended events after ~4–5 seconds. Chain `nav && sleep 1 && eval` as shown in Step 2. Never run nav and eval as separate commands with sleep 5+. The re-routing is per-tab, but only matters if you have a single tab open (see the tab-cleanup step above).
+- **Wrong-page redirects are often timing, not permanent** — When `nav && sleep 1 && eval` returns a different event's page, it's usually the SPA routing before the eval ran, not a stale/sold-out URL. Retry the same URL once — it almost always succeeds on the second attempt. Only skip after two failures.
 - **"X Apr onwards" listing date ≠ next available slot** — Events with "onwards" in the listing date may show a much later `full_date` on the detail page (e.g. listing "Sat, 11 Apr onwards" → detail `full_date: "Sat 25 Apr 2026"`). This is a single session booked for that later date. Detail page is authoritative; if it falls outside your window, skip the event. Only use the listing date as fallback when the detail page returns `null` for both `full_date` and `range_start`.
-- **Recurring weekly events: detail page returns null date** — Small venue music events (e.g. weekly cafe jamming sessions) return null for both `full_date` and `range_start` on the detail page. Fall back to the listing date, which reflects the next scheduled occurrence.
+- **Recurring weekly events: detail page returns null date** — Small venue events (comedy club nights, weekly jamming sessions, etc.) sometimes return null for both `full_date` and `range_start` on the detail page. Fall back to the listing date, which reflects the next scheduled occurrence.
 - **Recurring/multi-slot events show far-future dates on the detail page** — e.g. a weekly club night listed as "Sun, 12 Apr onwards" may show "Sun 27 Dec 2026" on the detail page (the last scheduled slot). This makes them rank lower by proximity. Use the detail page date as-is per the authoritative rule, but be aware these events may be deprioritised in ranking.
 - "PROMOTED" events appear first — they're paid placements but real events.
 - Date in listing is partial (no year, no time). Detail page has full date + time.
-- **Detail page date is authoritative** — BMS listing dates can silently diverge from the detail page (e.g. listing shows Apr 24 but detail shows May 17 for a different city's slot of the same tour). Always prefer the detail page date. PROMOTED events and **comedy/touring stand-up shows** are especially prone to this drift — listing cards show the next available slot for any city, but the Bengaluru detail page may be weeks or months later (observed: listing showed Sat 11 Apr, detail showed Sun 10 May; listing showed Fri 17 Apr, detail showed Sat 9 May — both non-PROMOTED shows at listing positions 2–3).
-- **Tour/multi-city events** have a date range block like `"Sun 12 Apr 2026 - Sat 30 May 2026"` instead of `date\ntime\nduration` on separate lines. The `info` regex returns `null` for these; the detail script now captures `range_start` (the start of the range) as a fallback. Use `range_start` if set, otherwise fall back to the listing date. Leave `time`/`duration` as null.
+- **Detail page date is authoritative** — listing dates frequently diverge from the detail page for any recurring event (club nights, DJ nights, workshop series, comedy tours, PROMOTED cards). A listing date reflects the next slot for any city; the Bengaluru detail page may be weeks later. Always prefer the detail page date.
+- **Skip detail visits for clearly out-of-window listing dates** — if the listing shows a hard date (no "onwards", not null) that is beyond your cutoff, skip the detail visit entirely. Only visit detail pages for in-window dates, "onwards" events, and null-date events.
+- **Events with date range blocks** (tours, workshop series, recurring multi-slot events) show `"Sun 12 Apr 2026 - Sat 30 May 2026"` instead of `date\ntime\nduration` on separate lines. The `info` regex returns `null` for these; the detail script captures `range_start` (start of the range) as a fallback. Use `range_start` if set, otherwise fall back to the listing date. Leave `time`/`duration` as null. This is very common for comedy tours and multi-show runs, as well as Arts & Crafts workshops.
 - **Multi-batch programme events** (e.g. science workshops, skill courses with multiple cohorts) embed their dates as prose inside the description (e.g. `"I Batch: April 28 to May 02, 2026; Time: 10:30am to 12:30 pm"`) rather than in the structured block. The `info` regex returns `null`. Fallback: use the listing date; parse time from the description text if a specific batch time is visible there.
 - Some detail pages have `description` empty — use the first paragraph of visible text below the title.
 - **Description bleed**: Short descriptions may have no "Read More" sentinel and run into boilerplate sections like "Artists", "Terms & Conditions", or "You May Also Like". The updated extraction code above uses all of these as end sentinels.
 - **`venue_full` can be null** on some detail pages (regex misses the block). Fall back to the listing's `venue` field in that case — it is always populated.
 - Duration may be missing for multi-day events — leave null.
+- **Duration regex can return garbage** — The `([\d]+\s+\w+)` capture group sometimes matches non-duration text that happens to follow the time line (e.g. "12 Minutes" for a 2-hour live concert). If `duration` looks implausible (under 30 minutes for a concert or club event), discard it and set to null.
+- **Time regex can return garbage** — The `time` field sometimes captures UI clock values rather than event times, producing results like "2:09 PM" or "3:02 PM" for arts & crafts workshops. Discard time values with implausible non-round minutes (e.g., :02, :06, :08, :09) for workshop events and set to null.
 - Image URLs from the listing contain ImageKit transforms with the date baked in — use as-is.
 - **Null-date listing events still have detail-page dates** — the listing image URL encodes the date; if the image is missing (empty `image` field) the date is null in the listing, but the detail page may still have a full date. Always check the detail page.
 - **Trailing punctuation in `venue_area`** — venue strings sometimes end with a period (e.g. `"Church Street Social: Bengaluru."`). Strip trailing `.` and whitespace from both `venue_name` and `venue_area` after splitting.
 - **`event_date` must be a non-empty string** — if no date is found on either listing or detail page, drop the event and substitute the next candidate rather than emitting an empty or null date.
 - **Listing venue may have no colon separator** — e.g. `"Bhartiya Mall Of Bengaluru"` has no `: `. In this case `venue_name` = the full string and `venue_area` = null.
+- **Venue colon without space** — some venues use `:` with no trailing space (e.g. `"Art Of Living Yoga And Meditation Center:Bengaluru"`). The LAST `: ` split won't match; fall back to splitting on the last bare `:` instead.
+- **BMS event URL may redirect to an external partner site** — some events (e.g. Swiftchella) open on `district.in` or another external domain instead of BMS. Detect via `window.location.href` not containing `bookmyshow.com` after nav. Treat the event as unusable and skip it.

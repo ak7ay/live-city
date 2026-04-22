@@ -7,6 +7,9 @@ dist/
 # Environment
 .env
 
+# Appwrite CLI project config (contains project ID)
+appwrite.config.json
+
 # Logs
 logs/
 *.log

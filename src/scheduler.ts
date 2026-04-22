@@ -12,7 +12,7 @@ export function startScheduler(jobName: string, cronExpression: string, onTick: 
 				logger.error({ job: jobName, error }, "Scheduled tick failed");
 			}
 		},
-		{ timezone: "Asia/Kolkata" },
+		{ timezone: "Asia/Kolkata", recoverMissedExecutions: true },
 	);
 
 	logger.info({ job: jobName, cron: cronExpression }, "Scheduler started");
