@@ -2,7 +2,11 @@
 """TV9 Kannada (Bengaluru) RSS mirror — 1:1 with memory/news/bengaluru/playbook-tv9kannada.md.
 
 Reads the raw RSS feed from stdin, filters to today+yesterday IST, emits a JSON
-array to stdout. Fields: n, title, url, date (YYYY-MM-DD), cats, desc, thumb.
+array to stdout. Fields: n, title, url, date (YYYY-MM-DD), cats, desc.
+
+Thumbnails are intentionally NOT emitted at listing stage — the playbook
+extracts them in phase-3 via JSON-LD `thumbnailUrl` (which is article-specific
+and more reliable than anything in the RSS feed).
 
 Environment:
   NEWS_TODAY_OVERRIDE  YYYY-MM-DD to pin "today" (test hook).
@@ -39,15 +43,6 @@ def story_date(item):
         return None
 
 
-def thumb_of(item):
-    # Prefer media:content or enclosure url attribute; fall back to first <img src=...>.
-    m = re.search(r'url="(https?://[^"]+)"', item)
-    if m:
-        return m.group(1)
-    m = re.search(r'<img[^>]+src="(https?://[^"]+)"', item)
-    return m.group(1) if m else ""
-
-
 def main():
     today = _today()
     yesterday = today - timedelta(days=1)
@@ -74,7 +69,6 @@ def main():
                 "date": d.strftime("%Y-%m-%d") if d else "",
                 "cats": cats,
                 "desc": clean(desc.group(1))[:300] if desc else "",
-                "thumb": thumb_of(item),
             }
         )
     json.dump(out, sys.stdout, ensure_ascii=False)

@@ -76,7 +76,6 @@ interface TV9Item {
 	date: string;
 	cats: string[];
 	desc: string;
-	thumb: string;
 }
 
 describe("Bengaluru scrapers — TV9 Kannada", () => {
