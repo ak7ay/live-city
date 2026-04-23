@@ -54,9 +54,30 @@ We expected additionally that same-combo phase-3 sessions (e.g., two tv9-single 
 
 This is a structural interaction between our feedback-driven playbook-evolution system and the SDK's prefix-hash cache. Not a regression — both features work; they just don't compound.
 
-### Verdict on the flag
+### Verdict on the flag: **reverted**
 
-**Keep it.** The SDK-base cross-session read is real and automatic, and the flag has no downside for our workload. Capturing the remaining playbook-cache opportunity would require behavior changes to feedback turns (batch them at end-of-run, or gate them more aggressively); out of scope for this PR.
+Fair A/B on phase-3 effective tokens between morning (no flag) and new run (with flag):
+
+| Metric | Morning | New | Δ |
+|---|---:|---:|---:|
+| Phase-3 total eff (first 8 sessions) | ~303,270 | ~292,826 | **−3.4%** |
+| Avg per session | ~37,909 | ~36,603 | −3.4% |
+| First-call `cache_read` (constant across sessions) | 9,035 | 8,376 | −659 |
+| First-call `cache_create` range | 9,786–20,933 | 11,728–23,961 | ~same |
+
+Key finding I initially missed: **the morning run was already hitting the SDK base cache cross-session** (constant 9,035 `cache_read` on every phase-3 session). The SDK marks its own preset block with `cache_control` regardless of our flag. My framing of "the flag enables cross-session caching" was wrong; cross-session caching of the SDK base was already on.
+
+What the flag actually did was move ~659 tokens of dynamic content (cwd, git, today, OS, memory path) out of the system prompt into the first user message. That shrunk the cacheable base slightly but demoted that content to a non-cacheable position (different per session). Net observed effect on phase-3: ~3% reduction, which is within run-to-run noise.
+
+The big win I projected (~25%) required **playbook-level** cross-session reuse. That didn't materialize because phase-1 and phase-3 feedback turns actively edit playbook files mid-run (this run, the tv9 feedback turn appended useful 25/31-item feed-size observations to Known Quirks), invalidating the hash.
+
+**Decision: revert commit `acb7648`.** Reasons:
+- Measured benefit is noise-level (~3%) — not worth a documented behavioral tradeoff.
+- The documented tradeoff (cwd/git/date "marginally less authoritative for steering" per Anthropic) is small but real.
+- Keeping an optimization that isn't measurably winning adds cognitive load.
+- If we later fix feedback-turn invalidation (e.g., batch feedback to end-of-run), we can re-apply the flag with evidence it matters.
+
+**The SDK upgrade (0.2.97 → 0.2.118) is retained** as routine dependency hygiene, independent of the flag.
 
 ## Phase-1 effective tokens (defer-translation + date filter)
 
@@ -130,13 +151,17 @@ New mix: 4 cross-source, 4 single (1 tv9+tv9 same-source variant, 3 tv9-only). B
 
 ## Decision
 
-**Ship.**
+**Ship the Bengaluru phase-1 port. Revert the SDK flag.**
 
-Three verified wins land in this PR:
+What lands in this PR:
 
-1. **SDK `excludeDynamicSections` flag:** cross-session SDK-base cache reuse works (10/11 sessions hit the 8,376-token base at 10% price). Playbook-level cache reuse is gated by the feedback-edit behavior — a separate optimization opportunity, documented for future work.
-2. **Bengaluru phase-1 defer-translation + today+yesterday IST filter:** post-write date validation passed first-try on both sources; eliminated the repair-retry cost that the morning run was paying (22 sessions → 11 sessions, ~27% phase-1 token reduction on full-run budget).
-3. **Quality:** equal or better vs morning baseline across source mix, body richness, headline fluency, and freshness.
+1. **Bengaluru phase-1 defer-translation + today+yesterday IST filter** (keeps): post-write date validation passed first-try on both sources; eliminated the repair-retry cost that the morning run was paying (22 sessions → 11 sessions, ~27% phase-1 token reduction on full-run budget).
+2. **SDK upgrade 0.2.97 → 0.2.118** (keeps): routine dependency hygiene.
+3. **Quality** (keeps): equal or better vs morning baseline across source mix, body richness, headline fluency, and freshness.
+
+What does NOT ship:
+
+- **SDK `excludeDynamicSections` flag** — reverted. Measured benefit on phase-3 was ~3% (noise-level), which doesn't justify the documented "marginally less authoritative" context tradeoff. Path to recover the original projected win requires addressing feedback-turn playbook invalidation first; deferred.
 
 ## Follow-ups
 
