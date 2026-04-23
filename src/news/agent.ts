@@ -223,9 +223,16 @@ export function findStaleDates(content: string, today: string, yesterday: string
 	return stale;
 }
 
-/** Compute IST today and yesterday as `YYYY-MM-DD`. */
-export function getDateWindow(now: Date = new Date()): { today: string; yesterday: string } {
-	const today = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+/**
+ * Compute IST today and yesterday as `YYYY-MM-DD`.
+ *
+ * Pass a `Date` to derive both from the wall clock at that instant, OR pass a
+ * pinned `YYYY-MM-DD` string to use it as today directly. Callers in long-running
+ * pipelines should pass the pinned string so a phase that crosses IST midnight
+ * still validates against the date the run was started for.
+ */
+export function getDateWindow(input: Date | string = new Date()): { today: string; yesterday: string } {
+	const today = typeof input === "string" ? input : input.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 	const [y, m, d] = today.split("-").map(Number);
 	const t = new Date(Date.UTC(y, m - 1, d));
 	t.setUTCDate(t.getUTCDate() - 1);
@@ -264,7 +271,9 @@ async function runPhase1(
 		log.info({ file: outputFile }, "Phase 1 extraction complete for source");
 
 		// ── Date-window validation (one in-session retry, then throw) ──
-		const { today: istToday, yesterday: istYesterday } = getDateWindow();
+		// Pin to the run's `today`, not Date.now(), so a phase-1 that crosses
+		// IST midnight validates against the date the agent was instructed to use.
+		const { today: istToday, yesterday: istYesterday } = getDateWindow(today);
 		let stale = findStaleDates(readFileSync(outputPath, "utf-8"), istToday, istYesterday);
 		if (stale.length > 0) {
 			log.warn(

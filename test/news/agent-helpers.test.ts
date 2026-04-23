@@ -168,4 +168,16 @@ describe("getDateWindow", () => {
 		expect(today).toBe("2026-05-01");
 		expect(yesterday).toBe("2026-04-30");
 	});
+
+	it("accepts a pinned today string and derives yesterday from it", () => {
+		const { today, yesterday } = getDateWindow("2026-04-23");
+		expect(today).toBe("2026-04-23");
+		expect(yesterday).toBe("2026-04-22");
+	});
+
+	it("string input handles month rollover", () => {
+		const { today, yesterday } = getDateWindow("2026-03-01");
+		expect(today).toBe("2026-03-01");
+		expect(yesterday).toBe("2026-02-28");
+	});
 });
