@@ -261,7 +261,40 @@ async function runPhase1(
 		if (fileSize < 100) {
 			throw new Error(`Phase 1: ${outputFile} is too small (${fileSize} chars) — likely empty or malformed`);
 		}
-		log.info({ file: outputFile }, "Phase 1 complete for source");
+		log.info({ file: outputFile }, "Phase 1 extraction complete for source");
+
+		// ── Date-window validation (one in-session retry, then throw) ──
+		const { today: istToday, yesterday: istYesterday } = getDateWindow();
+		let stale = findStaleDates(readFileSync(outputPath, "utf-8"), istToday, istYesterday);
+		if (stale.length > 0) {
+			log.warn(
+				{ count: stale.length, today: istToday, yesterday: istYesterday, stale },
+				"Phase 1 date validation failed; requesting agent to fix playbook + rewrite",
+			);
+			const offending = stale.map((s) => `  - Story ${s.num} ("${s.headline}") has Date "${s.date}"`).join("\n");
+			const repairCapture = captureResponseText(session);
+			await session.prompt(`The output file \`${outputFile}\` you just wrote contains stories with dates outside the today+yesterday window (today=${istToday}, yesterday=${istYesterday}, IST):
+
+${offending}
+
+The playbook's listing snippet has a date filter that should restrict items to today + yesterday in IST. Please:
+
+1. Diagnose why the filter let these through (check the Python listing snippet in the playbook).
+2. Edit the playbook to fix the filter. File: ${playbookPath}
+3. Re-run the corrected listing command and rewrite \`${outputFile}\` with the same format. Do NOT translate — keep the source language. Only fix the filter; do not change anything else in the playbook.`);
+			repairCapture.stop();
+
+			stale = findStaleDates(readFileSync(outputPath, "utf-8"), istToday, istYesterday);
+			if (stale.length > 0) {
+				log.error({ count: stale.length, stale }, "Phase 1 date validation failed after retry");
+				throw new Error(
+					`Phase 1: ${stale.length} stories in ${outputFile} are still outside today+yesterday window after retry`,
+				);
+			}
+			log.info("Phase 1 date validation passed after retry");
+		} else {
+			log.info("Phase 1 date validation passed");
+		}
 
 		// ── Playbook feedback ──
 		log.info("Requesting phase 1 playbook feedback");
