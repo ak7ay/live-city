@@ -43,8 +43,8 @@ Since 2026-04-23, prices run on an Appwrite function (see [functions/price/READM
 07:50 — Mac wakes (pmset repeat wakeorpoweron)
 08:00 — news job fires (node-cron inside npm run dev)
 09:00 — events job fires
-09:40 — launchd agent com.livecity.schedule-evening-wake schedules a
-        one-shot pmset wake for 17:50 today
+09:40 — launchd daemon com.livecity.schedule-evening-wake (root) schedules
+        a one-shot pmset wake for 17:50 today
 09:45 — launchd agent com.livecity.sleep-morning sleeps the mini
 17:50 — Mac wakes (one-shot pmset wake)
 18:00 — news job fires
@@ -52,6 +52,8 @@ Since 2026-04-23, prices run on an Appwrite function (see [functions/price/READM
 ```
 
 All times IST. Total awake ≈ 2h 35m/day (down from ~11h).
+
+Three jobs are involved. Two run as the user (sleep jobs, just call `osascript … sleep`) so they live in `~/Library/LaunchAgents/`. The third needs to call `pmset schedule wake`, **which requires root**, so it lives in `/Library/LaunchDaemons/` and is loaded with `sudo`.
 
 **Setup (one-time):**
 
@@ -62,18 +64,27 @@ sudo pmset -a sleep 0
 # Morning wake every day
 sudo pmset repeat wakeorpoweron MTWRFSU 07:50:00
 
-# Launchd agents
+# Unload the old single-sleep agent if present
 launchctl unload ~/Library/LaunchAgents/com.livecity.sleep.plist 2>/dev/null || true
-launchctl load   ~/Library/LaunchAgents/com.livecity.sleep-morning.plist
-launchctl load   ~/Library/LaunchAgents/com.livecity.schedule-evening-wake.plist
-launchctl load   ~/Library/LaunchAgents/com.livecity.sleep-evening.plist
+
+# Two user-level sleep agents (ownership stays as you)
+launchctl load ~/Library/LaunchAgents/com.livecity.sleep-morning.plist
+launchctl load ~/Library/LaunchAgents/com.livecity.sleep-evening.plist
+
+# One system-level daemon for the evening-wake scheduler (needs root)
+# The plist must be owned root:wheel, mode 644, under /Library/LaunchDaemons/.
+sudo launchctl load /Library/LaunchDaemons/com.livecity.schedule-evening-wake.plist
 ```
 
 **Verify:**
 
 ```bash
-pmset -g sched                            # expect morning repeat + today's 17:50 one-shot
-launchctl list | grep livecity            # expect three com.livecity.* entries
+# Trigger the evening-wake daemon manually (normally fires at 09:40)
+sudo launchctl start com.livecity.schedule-evening-wake
+
+pmset -g sched                            # expect 7:50AM repeat + today's 17:50 one-shot
+launchctl list | grep livecity            # expect two user-level agents
+sudo launchctl list | grep livecity       # expect the daemon (com.livecity.schedule-evening-wake)
 ```
 
 See [DESIGN.md](DESIGN.md) for architecture, decisions, and deployment details.
