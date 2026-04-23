@@ -105,7 +105,7 @@ describe("Chennai scrapers — Polimer listing", () => {
 			expect(item.title.length).toBeGreaterThan(0);
 			expect(item.url).toMatch(/^https:\/\/www\.polimernews\.com\//);
 			expect(item.date.length).toBeGreaterThan(0);
-			expect(item.thumb).toMatch(/^https?:\/\//);
+			expect(item.thumb).toMatch(/^https:\/\//);
 		}
 	});
 
