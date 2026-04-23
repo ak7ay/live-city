@@ -1,6 +1,6 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.4.9/schema.json",
-	"root": true,
+	"root": false,
 	"linter": {
 		"enabled": true,
 		"rules": {
@@ -21,6 +21,6 @@
 		"lineWidth": 120
 	},
 	"files": {
-		"includes": ["src/**/*.ts", "test/**/*.ts", "!!.worktrees"]
+		"includes": ["src/**/*.ts", "test/**/*.ts", "functions/**/*.js", "!!.worktrees"]
 	}
 }

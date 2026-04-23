@@ -4,7 +4,7 @@
   "type": "module",
   "engines": { "node": ">=22.0.0" },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test 'test/**/*.test.js'"
   },
   "dependencies": {
     "node-appwrite": "^23.0.0",
