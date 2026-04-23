@@ -2,34 +2,52 @@
 
 **Method:** RSS Feed
 
-**Listing (headlines only):**
+**Listing (today + yesterday IST window):**
 ```
 curl -s "https://tv9kannada.com/karnataka/bengaluru/feed" | python3 -c "
-import sys,re
+import sys, re
+from datetime import datetime, timedelta, timezone
+
+IST = timezone(timedelta(hours=5, minutes=30))
+today = datetime.now(IST).date()
+yesterday = today - timedelta(days=1)
+window = {today, yesterday}
+
+def clean(s):
+    s = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', s, flags=re.DOTALL)
+    s = re.sub(r'<[^>]+>', '', s)
+    return s.strip()
+
+def story_date(it):
+    m = re.search(r'<pubDate>(.*?)</pubDate>', it, re.DOTALL)
+    if not m: return None
+    try: return datetime.strptime(m.group(1).strip(), '%a, %d %b %Y %H:%M:%S %z').astimezone(IST).date()
+    except: return None
+
 data = sys.stdin.read()
 # Strip content:encoded first (raw feed is ~500KB)
 data = re.sub(r'<content:encoded>.*?</content:encoded>', '', data, flags=re.DOTALL)
-items_raw = re.findall(r'<item>(.*?)</item>', data, flags=re.DOTALL)[:20]
+items_raw = re.findall(r'<item>(.*?)</item>', data, flags=re.DOTALL)
+items_raw = [it for it in items_raw if story_date(it) in window]
+
 for i, item in enumerate(items_raw, 1):
     title = re.search(r'<title>(.*?)</title>', item, re.DOTALL)
     link  = re.search(r'<link>(.*?)</link>', item, re.DOTALL)
-    pub   = re.search(r'<pubDate>(.*?)</pubDate>', item, re.DOTALL)
     desc  = re.search(r'<description>(.*?)</description>', item, re.DOTALL)
     cats  = re.findall(r'<category><!\[CDATA\[(.*?)\]\]></category>', item)
-    def clean(s):
-        s = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', s, flags=re.DOTALL)
-        s = re.sub(r'<[^>]+>', '', s)
-        return s.strip()
+    d = story_date(item)
     print(f'=== STORY {i} ===')
     print(f'TITLE: {clean(title.group(1)) if title else \"\"}')
     print(f'LINK:  {link.group(1).strip() if link else \"\"}')
-    print(f'DATE:  {pub.group(1).strip() if pub else \"\"}')
+    print(f'DATE:  {d.strftime(\"%Y-%m-%d\") if d else \"\"}')
     print(f'CATS:  {\" | \".join(cats)}')
     print(f'DESC:  {clean(desc.group(1))[:300] if desc else \"\"}')
     print()
 "
 ```
 **Why:** Printing the cleaned XML is still ~39KB and overflows tool buffers. Extract fields directly in the same Python pass instead.
+
+**Why the date filter:** The feed routinely spans previous days — up to 16 items from a prior day observed 2026-04-22 (see Known Quirks). Filtering to today+yesterday IST in-python trims noise before it reaches phase-2. The former `[:20]` slice is removed — the date filter is the correct cap (typical window: ~30 items). The normalized `DATE: YYYY-MM-DD` line lets the phase-1 agent copy the date verbatim into each story's `**Date:**` field.
 
 **Note:** Titles may contain HTML entities (`&#8216;`, `&#8220;` etc.) — these are smart quotes; decode or ignore as needed. The `articleBody` from JSON-LD may also contain HTML entities (`&#039;` for apostrophe, `&quot;` for double-quote) — decode these when rendering (observed 2026-04-16, article 1173793).
 
