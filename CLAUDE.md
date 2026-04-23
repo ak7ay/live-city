@@ -8,6 +8,31 @@
 
 Each script writes to live Appwrite for the configured city (default `bengaluru`).
 
+## Appwrite
+
+- **Host:** Appwrite Cloud, Singapore region — `https://sgp.cloud.appwrite.io/v1`
+- **Project ID:** `69c91ed0000423db1d3f` (pinned in [appwrite.config.json](appwrite.config.json) and `.env`)
+- **CLI profile:** the current CLI session is configured for this project (endpoint + key set via `appwrite client …`). Use `appwrite functions list`, `appwrite functions get --function-id <id>`, etc. directly — no per-command `--endpoint`/`--project-id` flags needed.
+- **Login state:** API-key session only (no `appwrite login` cookie). If `appwrite login` is ever needed, credentials are in `~/.appwrite/prefs.json`.
+
+### Functions
+
+One deployed function today: `refresh_city_environment` (weather + AQI, hourly). Use it as the reference template for any new function.
+
+Convention:
+- Runtime: `node-22`, entrypoint `src/index.js`, size `s-0.5vcpu-512mb`, timeout 60s.
+- Env vars: `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY`, `APPWRITE_DATABASE_ID`, plus any function-specific config (e.g. `CITY_COORDINATES_JSON`).
+- Deployed via `appwrite` CLI (`type: cli` on deployments). No local `functions/` directory exists yet — source is pushed directly.
+- Logs are the function's stdout; keep them one-line per execution (e.g. `Updated bengaluru: 28.3°C, AQI 100`).
+
+### Schedules & timezones
+
+Appwrite function `schedule` is a standard 5-field cron in **UTC** (one expression per function, no timezone field). IST (+5:30) never aligns cleanly to UTC hour boundaries, so for IST-bounded windows the cleanest pattern is: trigger a superset window in UTC cron, then filter by current IST time inside the function.
+
+Example — prices should run every 5 min during 09:30–10:30 IST (04:00–05:00 UTC) and 15:00–16:00 IST (09:30–10:30 UTC):
+- Cron (UTC superset): `*/5 4-5,9-10 * * *`
+- Inside handler: compute IST `hh:mm` and return early if outside `[09:30, 10:30]` ∪ `[15:00, 16:00]`.
+
 ## Agent Runtime
 
 The default agent backend is the **Claude Agent SDK** (`claude-sonnet-4-6`). The legacy pi-coding-agent backend is still in the tree as a fallback — opt in with `AGENT_RUNTIME=pi`.
