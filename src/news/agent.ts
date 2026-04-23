@@ -187,6 +187,52 @@ ${selectionJson}
 4. Return the JSON output with source_count: ${sourcesLength} and rank: ${rank}.`;
 }
 
+// ── Phase 1 helpers ──────────────────────────────────────────────────
+
+export interface StaleStory {
+	num: number;
+	headline: string;
+	date: string; // raw value as written, or "(missing)" if absent
+}
+
+/**
+ * Parse a stories-{source}.md file and return the stories whose `Date:` field
+ * is not exactly today or yesterday (IST, both formatted YYYY-MM-DD). A
+ * missing date is reported as "(missing)" and counts as a violation.
+ *
+ * Format expected per story:
+ *   ## N. <headline>
+ *   - **Date:** YYYY-MM-DD
+ *   - <other fields...>
+ */
+export function findStaleDates(content: string, today: string, yesterday: string): StaleStory[] {
+	const stale: StaleStory[] = [];
+	const blockRe = /^##\s+(\d+)\.\s+(.+?)\s*$([\s\S]*?)(?=^##\s+\d+\.|$(?![\r\n]))/gm;
+	for (const m of content.matchAll(blockRe)) {
+		const num = Number(m[1]);
+		const headline = m[2].trim();
+		const block = m[3];
+		const dm = block.match(/^-\s+\*\*Date:\*\*\s+(\S+)/m);
+		const dateStr = dm ? dm[1].trim() : "";
+		if (!dateStr) {
+			stale.push({ num, headline, date: "(missing)" });
+		} else if (dateStr !== today && dateStr !== yesterday) {
+			stale.push({ num, headline, date: dateStr });
+		}
+	}
+	return stale;
+}
+
+/** Compute IST today and yesterday as `YYYY-MM-DD`. */
+export function getDateWindow(now: Date = new Date()): { today: string; yesterday: string } {
+	const today = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+	const [y, m, d] = today.split("-").map(Number);
+	const t = new Date(Date.UTC(y, m - 1, d));
+	t.setUTCDate(t.getUTCDate() - 1);
+	const yesterday = t.toISOString().slice(0, 10);
+	return { today, yesterday };
+}
+
 // ── Phase 1: Extract ─────────────────────────────────────────────────
 
 async function runPhase1(

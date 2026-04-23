@@ -73,3 +73,99 @@ describe("extractJson", () => {
 		expect(JSON.parse(result!).rank).toBe(1);
 	});
 });
+
+import { findStaleDates } from "../../src/news/agent.js";
+
+describe("findStaleDates", () => {
+	const TODAY = "2026-04-23";
+	const YESTERDAY = "2026-04-22";
+
+	it("returns empty when all stories are in the today/yesterday window", () => {
+		const md = `# polimer — chennai (2026-04-23)
+
+## 1. தலைப்பு ஒன்று
+- **Date:** 2026-04-23
+- **Category:** தமிழ்நாடு
+- **Summary:** சுருக்கம்
+- **URL:** https://example.com/a
+- **ID:** none
+
+## 2. தலைப்பு இரண்டு
+- **Date:** 2026-04-22
+- **Category:** சென்னை
+- **Summary:** சுருக்கம்
+- **URL:** https://example.com/b
+- **ID:** none
+`;
+		expect(findStaleDates(md, TODAY, YESTERDAY)).toEqual([]);
+	});
+
+	it("flags a story dated before yesterday", () => {
+		const md = `## 1. ok
+- **Date:** 2026-04-23
+- **URL:** https://example.com/a
+
+## 2. stale
+- **Date:** 2026-04-15
+- **URL:** https://example.com/b
+`;
+		const stale = findStaleDates(md, TODAY, YESTERDAY);
+		expect(stale).toHaveLength(1);
+		expect(stale[0]).toMatchObject({ num: 2, headline: "stale", date: "2026-04-15" });
+	});
+
+	it("flags a story with a missing Date field", () => {
+		const md = `## 1. headline-without-date
+- **Category:** foo
+- **URL:** https://example.com/a
+`;
+		const stale = findStaleDates(md, TODAY, YESTERDAY);
+		expect(stale).toHaveLength(1);
+		expect(stale[0]).toMatchObject({ num: 1, headline: "headline-without-date", date: "(missing)" });
+	});
+
+	it("flags a story dated after today (future-leak)", () => {
+		const md = `## 1. tomorrow
+- **Date:** 2026-04-24
+- **URL:** https://example.com/a
+`;
+		const stale = findStaleDates(md, TODAY, YESTERDAY);
+		expect(stale).toHaveLength(1);
+		expect(stale[0].date).toBe("2026-04-24");
+	});
+
+	it("returns empty for an empty file", () => {
+		expect(findStaleDates("", TODAY, YESTERDAY)).toEqual([]);
+	});
+
+	it("handles many stories in one file", () => {
+		const blocks = Array.from(
+			{ length: 12 },
+			(_, i) => `## ${i + 1}. h${i + 1}
+- **Date:** ${i % 3 === 0 ? "2026-04-15" : "2026-04-23"}
+- **URL:** https://example.com/${i + 1}
+`,
+		).join("\n");
+		const stale = findStaleDates(blocks, TODAY, YESTERDAY);
+		// 12 stories; indices 0,3,6,9 → 4 stale (story numbers 1,4,7,10)
+		expect(stale.map((s) => s.num)).toEqual([1, 4, 7, 10]);
+	});
+});
+
+import { getDateWindow } from "../../src/news/agent.js";
+
+describe("getDateWindow", () => {
+	it("returns today and yesterday for a given UTC instant", () => {
+		// 2026-04-23T20:00:00Z = 2026-04-24 01:30 IST
+		const { today, yesterday } = getDateWindow(new Date("2026-04-23T20:00:00Z"));
+		expect(today).toBe("2026-04-24");
+		expect(yesterday).toBe("2026-04-23");
+	});
+
+	it("handles month/year rollover", () => {
+		const { today, yesterday } = getDateWindow(new Date("2026-05-01T05:00:00Z"));
+		// 05:00 UTC = 10:30 IST → today = 2026-05-01, yesterday = 2026-04-30
+		expect(today).toBe("2026-05-01");
+		expect(yesterday).toBe("2026-04-30");
+	});
+});
