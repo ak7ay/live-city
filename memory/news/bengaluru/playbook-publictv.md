@@ -2,22 +2,33 @@
 
 **Method:** WordPress REST API
 
-**Listing (titles + excerpts only):**
+**Listing (today + yesterday IST window):**
 ```
 curl -s "https://publictv.in/wp-json/wp/v2/posts?categories=255&per_page=20&_fields=id,title,excerpt,link,date" | python3 -c "
 import sys, json, re, html
+from datetime import datetime, timedelta, timezone
 
-data = json.load(sys.stdin)
+IST = timezone(timedelta(hours=5, minutes=30))
+today = datetime.now(IST).date()
+yesterday = today - timedelta(days=1)
+window = {today, yesterday}
 
 def clean_html(s):
     s = re.sub(r'<[^>]+>', '', s)
     s = re.sub(r'\s+', ' ', s)
     return html.unescape(s.strip())
 
+def story_date(p):
+    try: return datetime.strptime(p.get('date',''), '%Y-%m-%dT%H:%M:%S').date()
+    except: return None
+
+data = json.load(sys.stdin)
+data = [p for p in data if story_date(p) in window]
 for i, post in enumerate(data, 1):
+    d = story_date(post)
     print(f'=== STORY {i} ===')
     print(f'ID: {post[\"id\"]}')
-    print(f'DATE: {post[\"date\"]}')
+    print(f'DATE: {d.strftime(\"%Y-%m-%d\")}')
     print(f'LINK: {post[\"link\"]}')
     print(f'TITLE: {clean_html(post[\"title\"][\"rendered\"])}')
     print(f'EXCERPT: {clean_html(post[\"excerpt\"][\"rendered\"])[:300]}')
@@ -25,6 +36,8 @@ for i, post in enumerate(data, 1):
 "
 ```
 **Why:** The raw JSON response is ~53KB even without `featured_media` and overflows tool buffers (observed 2026-04-10). Pipe through Python immediately — do not fetch and then parse separately. Do NOT include `featured_media` in `_fields`; it inflates further and is not needed at listing stage.
+
+**Why the date filter:** The listing routinely spans into prior days (see Known Quirks). Filtering to today+yesterday in-python trims noise before it reaches phase-2. `post.date` is naive IST (verified 2026-04-23: `date_gmt` is exactly +5:30 from `date`) so it parses directly without a timezone conversion. The normalized `DATE: YYYY-MM-DD` line lets the phase-1 agent copy the date verbatim into each story's `**Date:**` field.
 
 **Full article by ID:**
 ```
