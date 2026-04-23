@@ -52,12 +52,25 @@ export interface Session {
 
 // ── Session factories ────────────────────────────────────────────────
 
+// `excludeDynamicSections: true` demotes the SDK's per-session content (cwd,
+// git status, today's date, OS/platform, auto-memory paths) from the system
+// prompt into the first user message. The system prompt then becomes byte-
+// identical across sessions that share the same `append` text, letting the
+// SDK's cache marker cover our playbook and enabling cross-session cache hits
+// (~80K effective tokens saved per run observed on chennai). Docs:
+// https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts
+
 /** Session WITHOUT skills (plain bash/file/search tooling only). */
 export async function createPlainSession(cwd: string, systemSuffix: string): Promise<Session> {
 	return createSession({
 		cwd,
 		model: MODEL_ID,
-		systemPrompt: { type: "preset", preset: "claude_code", append: systemSuffix },
+		systemPrompt: {
+			type: "preset",
+			preset: "claude_code",
+			append: systemSuffix,
+			excludeDynamicSections: true,
+		},
 		allowedTools: PLAIN_ALLOWED_TOOLS,
 		disallowedTools: DISALLOWED_TOOLS,
 		permissionMode: "dontAsk",
@@ -73,7 +86,12 @@ export async function createBrowserSession(cwd: string, systemSuffix: string): P
 	return createSession({
 		cwd,
 		model: MODEL_ID,
-		systemPrompt: { type: "preset", preset: "claude_code", append: systemSuffix },
+		systemPrompt: {
+			type: "preset",
+			preset: "claude_code",
+			append: systemSuffix,
+			excludeDynamicSections: true,
+		},
 		allowedTools: BROWSER_ALLOWED_TOOLS,
 		disallowedTools: DISALLOWED_TOOLS,
 		permissionMode: "dontAsk",
