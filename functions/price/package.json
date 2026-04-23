@@ -1,0 +1,13 @@
+{
+  "name": "live-city-price-function",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.js'"
+  },
+  "dependencies": {
+    "node-appwrite": "^23.0.0",
+    "zod": "^4.3.6"
+  }
+}

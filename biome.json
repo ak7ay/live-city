@@ -21,6 +21,6 @@
 		"lineWidth": 120
 	},
 	"files": {
-		"includes": ["src/**/*.ts", "test/**/*.ts", "!!.worktrees"]
+		"includes": ["src/**/*.ts", "test/**/*.ts", "functions/**/*.js", "!!.worktrees"]
 	}
 }
