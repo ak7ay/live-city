@@ -58,40 +58,46 @@ Write a file called \`stories-${source}.md\` in the current directory with this 
 \`\`\`
 # ${source} — ${city} Stories (${today})
 
-## 1. [English headline]
-- **Category:** [translated category]
-- **Summary:** [1-line English summary]
+## 1. [Headline in source language]
+- **Date:** [YYYY-MM-DD, IST — copy the DATE: value from the listing snippet verbatim]
+- **Category:** [raw category from source]
+- **Summary:** [1-line summary in source language]
 - **URL:** [article URL]
 - **ID:** [source-specific ID or "none"]
 
-## 2. [English headline]
+## 2. [Headline in source language]
 ...
 \`\`\`
+
+Do NOT translate. Keep headlines, summaries, and categories in the source language exactly as they appear in the listing. Phase-2 handles translation downstream.
 
 Include EVERY story from the listing. Do not skip any.`;
 }
 
 function extractionUserPrompt(source: string, city: string, today: string): string {
 	return `\
-Extract today's news stories from the "${source}" source for ${city}.
-Today's date: ${today}
+Extract news stories from the "${source}" source for ${city}.
+Today's date: ${today} (IST)
 
 ## Steps
 
 1. Use the playbook to fetch the LISTING from the "${source}" source only. Use bash with curl.
-2. Translate ALL headlines and summaries to English.
-3. Write the output file in the format specified.`;
+2. Write the output file in the format specified — keep all text in the source language; copy the DATE: value into the **Date:** field.`;
 }
 
 function selectionSystemPrompt(city: string): string {
 	return `\
 You are a ${city} news editor selecting the top stories.
 
+The source files may be in a non-English language (or mixed). Categories may appear in local-language, English, or doubled with an English parenthetical (e.g. \`தமிழக செய்திகள் (Tamilnadu)\`). You must translate headlines, summaries, and categories to English in your final output — the schema requires \`*_en\` fields.
+
 ## Ranking Criteria
 
 This is primarily a **${city} news feed** — when ${city}-local stories are available (clear dateline, event, or person/organisation tied to ${city}), lean toward surfacing them. State-wide or regional stories are a natural fill when ${city} coverage is light. National or world stories belong in the top list only when they have clear relevance to ${city} readers.
 
 Within that preference, rank by public impact. Use category diversity as a tiebreaker — avoid clustering same-category stories.
+
+When identifying cross-source overlap, compare the underlying facts (names, places, events, dates) rather than exact wording — the same story is phrased differently even within one language, and across languages the textual overlap is near zero.
 
 If a story appears in multiple sources, include every source entry in the \`sources\` array (for attribution/deduplication), but source count does not drive the rank.
 
@@ -181,6 +187,59 @@ ${selectionJson}
 4. Return the JSON output with source_count: ${sourcesLength} and rank: ${rank}.`;
 }
 
+// ── Phase 1 helpers ──────────────────────────────────────────────────
+
+export interface StaleStory {
+	num: number;
+	headline: string;
+	date: string; // raw value as written, or "(missing)" if absent
+}
+
+/**
+ * Parse a stories-{source}.md file and return the stories whose `Date:` field
+ * is not exactly today or yesterday (IST, both formatted YYYY-MM-DD). A
+ * missing date is reported as "(missing)" and counts as a violation.
+ *
+ * Format expected per story:
+ *   ## N. <headline>
+ *   - **Date:** YYYY-MM-DD
+ *   - <other fields...>
+ */
+export function findStaleDates(content: string, today: string, yesterday: string): StaleStory[] {
+	const stale: StaleStory[] = [];
+	const blockRe = /^##\s+(\d+)\.\s+(.+?)\s*$([\s\S]*?)(?=^##\s+\d+\.|$(?![\r\n]))/gm;
+	for (const m of content.matchAll(blockRe)) {
+		const num = Number(m[1]);
+		const headline = m[2].trim();
+		const block = m[3];
+		const dm = block.match(/^-\s+\*\*Date:\*\*\s+(\S+)/m);
+		const dateStr = dm ? dm[1].trim() : "";
+		if (!dateStr) {
+			stale.push({ num, headline, date: "(missing)" });
+		} else if (dateStr !== today && dateStr !== yesterday) {
+			stale.push({ num, headline, date: dateStr });
+		}
+	}
+	return stale;
+}
+
+/**
+ * Compute IST today and yesterday as `YYYY-MM-DD`.
+ *
+ * Pass a `Date` to derive both from the wall clock at that instant, OR pass a
+ * pinned `YYYY-MM-DD` string to use it as today directly. Callers in long-running
+ * pipelines should pass the pinned string so a phase that crosses IST midnight
+ * still validates against the date the run was started for.
+ */
+export function getDateWindow(input: Date | string = new Date()): { today: string; yesterday: string } {
+	const today = typeof input === "string" ? input : input.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+	const [y, m, d] = today.split("-").map(Number);
+	const t = new Date(Date.UTC(y, m - 1, d));
+	t.setUTCDate(t.getUTCDate() - 1);
+	const yesterday = t.toISOString().slice(0, 10);
+	return { today, yesterday };
+}
+
 // ── Phase 1: Extract ─────────────────────────────────────────────────
 
 async function runPhase1(
@@ -209,7 +268,42 @@ async function runPhase1(
 		if (fileSize < 100) {
 			throw new Error(`Phase 1: ${outputFile} is too small (${fileSize} chars) — likely empty or malformed`);
 		}
-		log.info({ file: outputFile }, "Phase 1 complete for source");
+		log.info({ file: outputFile }, "Phase 1 extraction complete for source");
+
+		// ── Date-window validation (one in-session retry, then throw) ──
+		// Pin to the run's `today`, not Date.now(), so a phase-1 that crosses
+		// IST midnight validates against the date the agent was instructed to use.
+		const { today: istToday, yesterday: istYesterday } = getDateWindow(today);
+		let stale = findStaleDates(readFileSync(outputPath, "utf-8"), istToday, istYesterday);
+		if (stale.length > 0) {
+			log.warn(
+				{ count: stale.length, today: istToday, yesterday: istYesterday, stale },
+				"Phase 1 date validation failed; requesting agent to fix playbook + rewrite",
+			);
+			const offending = stale.map((s) => `  - Story ${s.num} ("${s.headline}") has Date "${s.date}"`).join("\n");
+			const repairCapture = captureResponseText(session);
+			await session.prompt(`The output file \`${outputFile}\` you just wrote contains stories with dates outside the today+yesterday window (today=${istToday}, yesterday=${istYesterday}, IST):
+
+${offending}
+
+The playbook's listing snippet has a date filter that should restrict items to today + yesterday in IST. Please:
+
+1. Diagnose why the filter let these through (check the Python listing snippet in the playbook).
+2. Edit the playbook to fix the filter. File: ${playbookPath}
+3. Re-run the corrected listing command and rewrite \`${outputFile}\` with the same format. Do NOT translate — keep the source language. Only fix the filter; do not change anything else in the playbook.`);
+			repairCapture.stop();
+
+			stale = findStaleDates(readFileSync(outputPath, "utf-8"), istToday, istYesterday);
+			if (stale.length > 0) {
+				log.error({ count: stale.length, stale }, "Phase 1 date validation failed after retry");
+				throw new Error(
+					`Phase 1: ${stale.length} stories in ${outputFile} are still outside today+yesterday window after retry`,
+				);
+			}
+			log.info("Phase 1 date validation passed after retry");
+		} else {
+			log.info("Phase 1 date validation passed");
+		}
 
 		// ── Playbook feedback ──
 		log.info("Requesting phase 1 playbook feedback");

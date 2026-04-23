@@ -2,10 +2,16 @@
 
 **Method:** RSS for listing, article-page JSON-LD (`NewsArticle.articleBody`) for body.
 
-**Listing:**
+**Listing (today + yesterday IST window):**
 ```
 curl -sL --compressed "https://www.polimernews.com/rss" | python3 -c "
 import sys, re, html as htmlmod
+from datetime import datetime, timedelta, timezone
+
+IST = timezone(timedelta(hours=5, minutes=30))
+today = datetime.now(IST).date()
+yesterday = today - timedelta(days=1)
+window = {today, yesterday}
 
 xml = sys.stdin.read()
 items = re.findall(r'<item>(.*?)</item>', xml, flags=re.DOTALL)
@@ -15,17 +21,27 @@ def clean(s):
     s = re.sub(r'<[^>]+>', '', s)
     return htmlmod.unescape(s.strip())
 
-for i, item in enumerate(items[:60], 1):
+def story_date(it):
+    pub = re.search(r'<pubDate>(.*?)</pubDate>', it, re.DOTALL)
+    if not pub: return None
+    try:
+        return datetime.strptime(pub.group(1).strip(), '%a, %d %b %Y %H:%M:%S %z').astimezone(IST).date()
+    except Exception:
+        return None
+
+items = [it for it in items if story_date(it) in window]
+
+for i, item in enumerate(items, 1):
     title = re.search(r'<title>(.*?)</title>', item, re.DOTALL)
     link  = re.search(r'<link>(.*?)</link>', item, re.DOTALL)
-    pub   = re.search(r'<pubDate>(.*?)</pubDate>', item, re.DOTALL)
+    d     = story_date(item)
     cats  = re.findall(r'<category>(.*?)</category>', item, re.DOTALL)
     desc  = re.search(r'<description>(.*?)</description>', item, re.DOTALL)
     thumb = re.search(r'(?:media:thumbnail|media:content|enclosure)[^>]*url=\"([^\"]+)\"', item)
     print(f'=== STORY {i} ===')
     print(f'TITLE: {clean(title.group(1)) if title else \"\"}')
     print(f'URL:   {clean(link.group(1)) if link else \"\"}')
-    print(f'DATE:  {pub.group(1).strip() if pub else \"\"}')
+    print(f'DATE:  {d.strftime(\"%Y-%m-%d\") if d else \"\"}')
     print(f'CATS:  {[clean(c) for c in cats[:4]]}')
     print(f'THUMB: {thumb.group(1) if thumb else \"\"}')
     print(f'DESC:  {clean(desc.group(1))[:200] if desc else \"\"}')
@@ -85,7 +101,7 @@ print('THUMB:', thumb)
 **Fields:**
 - `<title>` — Tamil headline (CDATA)
 - `<link>` — article URL; pattern `https://www.polimernews.com/{section}/{slug}-{id}`
-- `<pubDate>` — RFC822 IST (e.g. `Fri, 17 Apr 2026 20:45:11 +0530`)
+- `<pubDate>` — RFC822 IST (e.g. `Fri, 17 Apr 2026 20:45:11 +0530`) — the listing snippet normalizes this to IST `YYYY-MM-DD` and emits it as `DATE:`
 - `<category>` — Tamil tags: `முகப்பு` (home), `தமிழ்நாடு`, `அரசியல்`, `மாவட்டம்`, city names, etc.
 - `<media:content url="...">` / `<enclosure url="...">` — Publive CDN thumbnail (`img-cdn.publive.online/...`)
 - Article page `NewsArticle.articleBody` — Tamil body; full articles ~3000–4000 chars, `/latestnews/` stubs can be as short as ~200 chars (genuine, not an extraction failure)
@@ -108,6 +124,7 @@ Polimer tags some items with the Tamil city name `சென்னை` in the `<c
 
 ## Known quirks
 
-- Feed returns ~50 items.
+- Feed returns ~50 items pre-filter; today+yesterday window typically leaves ~30–40.
+- **Date filter:** the listing snippet drops anything not dated today or yesterday (IST).
 - Thumbnails are consistently present on every item.
 - Article pages are ~230KB — piping directly into python avoids double-buffering the payload.

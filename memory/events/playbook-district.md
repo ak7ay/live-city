@@ -29,7 +29,7 @@ browser-nav "https://www.district.in/events/"
 sleep 2
 ```
 
-Then set the location cookie with the city config:
+Then set the location cookie on **both** domains — `www.district.in` often has a stale Gurugram cookie that overrides `.district.in` if you only set one:
 
 ```bash
 browser-eval '(function() {
@@ -41,32 +41,31 @@ browser-eval '(function() {
     city_name: "{city_name}",
     city_url: "{city_slug}"
   });
-  document.cookie = "location=" + encodeURIComponent(loc) + ";path=/;domain=.district.in;max-age=31536000";
-  return "cookie set for {city_name}";
+  var encoded = encodeURIComponent(loc);
+  document.cookie = "location=" + encoded + ";path=/;domain=.district.in;max-age=31536000";
+  document.cookie = "location=" + encoded + ";path=/;domain=www.district.in;max-age=31536000";
+  return "cookies set for {city_name}";
 })()'
 ```
 
-Then reload the page:
+Then navigate to the events page **without `--new`** — opening in a new tab now causes immediate redirects to stale event detail pages before any interaction:
 
 ```bash
 browser-nav "https://www.district.in/events/"
-sleep 4
+sleep 3
 ```
 
-Do **not** trust the top-left header alone for city verification; it can stay on Gurugram even when the Bangalore listing is loaded. `document.cookie` may also show a stale `www.district.in` location cookie alongside the active `.district.in` one, so verify the cookie domain with `browser-cookies.js` or confirm by the first extracted venues.
+Verify the URL is still `https://www.district.in/events/` before proceeding. If it redirected, navigate again and re-check.
+
+Do **not** trust the top-left header alone for city verification; it can stay on Gurugram even when the target city's listing is loaded. Confirm by checking the first extracted venues.
 
 ---
 
 ## Step 2: Extract listing
 
-First scroll to the bottom to trigger lazy-loading of event cards, then wait:
+**Do not scroll.** Event cards load in the DOM without scrolling, and any scroll (including `scrollBy`, even with pointer events disabled) consistently navigates away to an event detail page. Extract immediately after the `sleep 3` in Step 1.
 
-```bash
-browser-eval 'window.scrollTo(0, document.body.scrollHeight)'
-sleep 2
-```
-
-Then extract all event cards:
+Extract all event cards:
 
 ```bash
 browser-eval '(function() {
@@ -99,11 +98,11 @@ District.in may include events from OTHER cities (e.g., IPL matches in Delhi eve
 
 ## Step 3: Enrich top events from detail pages
 
-For each selected event, navigate to its URL and extract structured data:
+For each selected event, navigate to its URL and extract structured data. Do NOT use `--new` — opening detail pages in a new tab increases redirect failures.
 
 ```bash
 browser-nav "{event_url}"
-sleep 2
+sleep 4
 ```
 
 ```bash
@@ -123,12 +122,15 @@ browser-eval '(function() {
   var durMatch = text.match(/Duration\s+([^\n]+)/);
   var langMatch = text.match(/Event will be in\s+(.+)/);
   return JSON.stringify({
+    url: window.location.href,
     description: desc.slice(0, 500),
     duration: durMatch ? durMatch[1] : null,
     language: langMatch ? langMatch[1] : null
   }, null, 2);
 })()'
 ```
+
+Check the returned `url` field against the requested URL to detect redirects (see Quirks).
 
 ### Parsing venue
 
@@ -170,10 +172,13 @@ The listing provides `datetime` as a single string. Parse it into event_date and
 | Listing format | event_date | event_time |
 |---------------|------------|------------|
 | `"Sat, 11 Apr, 6:30 PM"` | `"Sat, 11 Apr 2026"` | `"6:30 PM"` |
+| `"Wed, 22 Apr, Multiple slots"` | `"Wed, 22 Apr 2026"` | `null` |
 | `"Daily, Multiple slots"` | `"Daily"` | `null` |
 | `"Daily, 12:00 PM onwards"` | `"Daily"` | `"12:00 PM"` |
 | `"Every Sun & Sat, 7:00 PM to 10:30 PM"` | `"Every Sun & Sat"` | `"7:00 PM"` |
 | `"Fri, 10 Apr – Sun, 19 Apr, 7:00 PM"` | `"Fri, 10 Apr – Sun, 19 Apr 2026"` | `"7:00 PM"` |
+| `"Mon, 13 Apr – Mon, 20 Apr, Multiple slots"` | `"Mon, 13 Apr – Mon, 20 Apr 2026"` | `null` |
+| `"Sat, 25 Apr onwards, Multiple Dates"` | `"Sat, 25 Apr 2026"` | `null` |
 
 Add the current year if not present. The detail page may have a more specific date — prefer it.
 
@@ -183,11 +188,15 @@ Add the current year if not present. The detail page may have a more specific da
 
 - Cookie MUST be set before navigation — without it, District.in defaults to Gurugram/Delhi.
 - Featured carousel at top may show different events than the main list. The carousel events also match the `buy-tickets` selector — this is fine, include them, but dedupe by `title + datetime + venue` because the same event can appear twice with different URLs.
+- Related events in a series can appear as separate listings with slightly different titles but the same venue, datetime, and near-identical descriptions (e.g. "Not Just a Bar Takeover" and "Not Just a Bar Takeover — EP 02" — both PCO Delhi at Taal Bar, Apr 25). The `title + datetime + venue` dedup won't catch these; check for near-identical descriptions and keep only one (prefer the more specifically named variant).
 - Some events from other cities leak into the listing (e.g., IPL in Delhi), and a few cards have stale/mismatched title vs venue data. Filter by venue city and dedupe on `title + datetime + venue`, not title alone.
 - District.in has NO explicit category — you must infer it.
 - Images use `media.insider.in` CDN.
 - Recurring events ("Daily", "Every Sat") appear — these are valid events.
 - City-slug URL patterns (e.g. `https://www.district.in/bengaluru/events/`) return a 404 — always use `https://www.district.in/events/` and rely solely on the cookie for city selection.
-- The event cards are lazy-loaded by React and won't appear in the DOM until the page is scrolled. Always scroll to the bottom and wait before running the extraction selector, otherwise it returns `[]`.
-- Detail pages occasionally redirect back to the listing on first load (observed with recurring events). If `text.indexOf("About")` returns -1 or description is empty, re-navigate with `sleep 3` and retry.
+- Event cards are present in the DOM without scrolling — typically 20+ cards load on page render. Do not scroll.
+- **Any scroll navigates away**: `scrollTo`, `scrollBy`, and even scroll with all link pointer-events disabled all redirect to an event detail page. This is not recoverable mid-scroll; just avoid it entirely.
+- Opening the events page with `--new` causes an immediate redirect to a stale event detail page before any interaction. Always navigate without `--new` for the listing page.
+- Detail pages occasionally redirect — either back to the listing or to a completely different event page. Always verify the returned `url` field matches the requested URL slug. The `sleep 4` after `browser-nav` is already sufficient; no extra sleep needed before the eval. If it doesn't match, retry once. If it still redirects, skip and substitute with the next candidate. A non-empty description is NOT a reliable redirect check — the wrong event's description will populate it silently. Redirects tend to be cross-linked between specific events (not just to the listing), so the redirect target's data may still be usable if that event is in your target list.
+- Recurring events with old URL slugs (e.g. `jan13-2024`, `aug31-2024`) redirect on both attempts consistently — skip them proactively rather than burning retries. Prefer candidate substitutes with recent slugs (current year).
 - Venue city suffix duplication may be same-spelling (`"Bangalore, Bangalore"`) or mixed (`"Bangalore, Bengaluru"`) — the trailing-city trim logic in Step 3 handles both.
