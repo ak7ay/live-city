@@ -89,11 +89,15 @@ function selectionSystemPrompt(city: string): string {
 	return `\
 You are a ${city} news editor selecting the top stories.
 
+The source files may be in a non-English language (or mixed). Categories may appear in local-language, English, or doubled with an English parenthetical (e.g. \`தமிழக செய்திகள் (Tamilnadu)\`). You must translate headlines, summaries, and categories to English in your final output — the schema requires \`*_en\` fields.
+
 ## Ranking Criteria
 
 This is primarily a **${city} news feed** — when ${city}-local stories are available (clear dateline, event, or person/organisation tied to ${city}), lean toward surfacing them. State-wide or regional stories are a natural fill when ${city} coverage is light. National or world stories belong in the top list only when they have clear relevance to ${city} readers.
 
 Within that preference, rank by public impact. Use category diversity as a tiebreaker — avoid clustering same-category stories.
+
+When identifying cross-source overlap, compare the underlying facts (names, places, events, dates) rather than exact wording — the same story is phrased differently even within one language, and across languages the textual overlap is near zero.
 
 If a story appears in multiple sources, include every source entry in the \`sources\` array (for attribution/deduplication), but source count does not drive the rank.
 
