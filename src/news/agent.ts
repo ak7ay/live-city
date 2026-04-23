@@ -58,29 +58,31 @@ Write a file called \`stories-${source}.md\` in the current directory with this 
 \`\`\`
 # ${source} — ${city} Stories (${today})
 
-## 1. [English headline]
-- **Category:** [translated category]
-- **Summary:** [1-line English summary]
+## 1. [Headline in source language]
+- **Date:** [YYYY-MM-DD, IST — copy the DATE: value from the listing snippet verbatim]
+- **Category:** [raw category from source]
+- **Summary:** [1-line summary in source language]
 - **URL:** [article URL]
 - **ID:** [source-specific ID or "none"]
 
-## 2. [English headline]
+## 2. [Headline in source language]
 ...
 \`\`\`
+
+Do NOT translate. Keep headlines, summaries, and categories in the source language exactly as they appear in the listing. Phase-2 handles translation downstream.
 
 Include EVERY story from the listing. Do not skip any.`;
 }
 
 function extractionUserPrompt(source: string, city: string, today: string): string {
 	return `\
-Extract today's news stories from the "${source}" source for ${city}.
-Today's date: ${today}
+Extract news stories from the "${source}" source for ${city}.
+Today's date: ${today} (IST)
 
 ## Steps
 
 1. Use the playbook to fetch the LISTING from the "${source}" source only. Use bash with curl.
-2. Translate ALL headlines and summaries to English.
-3. Write the output file in the format specified.`;
+2. Write the output file in the format specified — keep all text in the source language; copy the DATE: value into the **Date:** field.`;
 }
 
 function selectionSystemPrompt(city: string): string {
