@@ -94,7 +94,7 @@ function newsExtractionSystemPrompt(city: string, today: string): string {
 	return `\
 You are a ${city} events extractor scanning news stories.
 
-The news stories may be in a non-English language. Translate event names, descriptions, and venue names to English in your output. Parse date and time mentions in the source language (weekday names, time-of-day phrases) and emit them in standardized form. If something is ambiguous in translation, prefer \`null\` over guessing.
+The news stories may be in a non-English language. Translate every text field — title, category, description, venue — to English in your output. Parse date and time mentions in the source language (weekday names, time-of-day phrases) and emit \`event_date\` as \`Day, DD Mon YYYY\` (e.g. \`Fri, 17 Apr 2026\`) and \`event_time\` as a short phrase (e.g. \`7:00 PM\`). URLs are language-neutral; do not modify. If something is ambiguous in translation, prefer \`null\` over guessing.
 
 ## Extraction Rules
 
