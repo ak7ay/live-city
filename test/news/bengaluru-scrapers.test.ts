@@ -68,3 +68,61 @@ describe("Bengaluru scrapers — PublicTV", () => {
 		expect(empty.length).toBe(0);
 	});
 });
+
+interface TV9Item {
+	n: number;
+	title: string;
+	url: string;
+	date: string;
+	cats: string[];
+	desc: string;
+	thumb: string;
+}
+
+describe("Bengaluru scrapers — TV9 Kannada", () => {
+	// Fixture distribution: 6 × 2026-04-23 IST + 25 × 2026-04-22 + 27 × 2026-04-21 + 2 × 2026-04-20.
+	// TODAY=2026-04-23 → window = {2026-04-23, 2026-04-22} → 31 items kept.
+	const items = runScript("tv9kannada.py", resolve(FIXTURES, "tv9kannada-feed.xml"), {
+		NEWS_TODAY_OVERRIDE: "2026-04-23",
+	}) as TV9Item[];
+
+	it("returns at least 20 items in today+yesterday window", () => {
+		expect(items.length).toBeGreaterThanOrEqual(20);
+	});
+
+	it("every item has title, url (tv9kannada), IST YYYY-MM-DD date", () => {
+		for (const item of items) {
+			expect(item.title.length).toBeGreaterThan(0);
+			expect(item.url).toMatch(/^https?:\/\/(www\.)?tv9kannada\.com\//);
+			expect(item.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		}
+	});
+
+	it("every item has at least one category tag", () => {
+		for (const item of items) {
+			expect(item.cats.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("every emitted item has a date in (today, yesterday) IST", () => {
+		for (const item of items) {
+			expect(["2026-04-23", "2026-04-22"]).toContain(item.date);
+		}
+	});
+
+	it("date filter drops out-of-window items", () => {
+		// TODAY=2026-04-21 → window = {2026-04-21, 2026-04-20} → 29 kept (27 + 2).
+		const filtered = runScript("tv9kannada.py", resolve(FIXTURES, "tv9kannada-feed.xml"), {
+			NEWS_TODAY_OVERRIDE: "2026-04-21",
+		}) as TV9Item[];
+		expect(filtered.length).toBe(29);
+		for (const item of filtered) expect(["2026-04-21", "2026-04-20"]).toContain(item.date);
+	});
+
+	it("date filter returns empty when TODAY is far ahead", () => {
+		const empty = runScript("tv9kannada.py", resolve(FIXTURES, "tv9kannada-feed.xml"), {
+			NEWS_TODAY_OVERRIDE: "2026-05-01",
+		}) as TV9Item[];
+		expect(empty.length).toBe(0);
+	});
+});
