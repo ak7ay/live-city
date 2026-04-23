@@ -94,6 +94,8 @@ function newsExtractionSystemPrompt(city: string, today: string): string {
 	return `\
 You are a ${city} events extractor scanning news stories.
 
+The news stories may be in a non-English language. Translate event names, descriptions, and venue names to English in your output. Parse date and time mentions in the source language (weekday names, time-of-day phrases) and emit them in standardized form. If something is ambiguous in translation, prefer \`null\` over guessing.
+
 ## Extraction Rules
 
 - Only extract stories about FUTURE or ONGOING events (event_date >= ${today}) that a resident would want to attend
