@@ -46,7 +46,9 @@ appwrite functions create \
   --entrypoint src/index.js \
   --execute users \
   --timeout 60 \
-  --specification s-0.5vcpu-512mb \
+  --commands "npm install" \
+  --build-specification s-0.5vcpu-512mb \
+  --runtime-specification s-0.5vcpu-512mb \
   --schedule '*/5 4-5,9-10 * * *'
 
 # Set env vars (re-run to update)
@@ -62,6 +64,17 @@ appwrite functions create-deployment \
   --code . \
   --activate true
 ```
+
+> The `--commands "npm install"` flag on `functions create` is required — without it, Appwrite builds the deployment without dependencies and every execution fails with `Cannot find package 'node-appwrite' imported from /mnt/code/src/index.js`. If you ever forget it on `create`, recover with:
+>
+> ```bash
+> appwrite functions update --function-id price --commands "npm install" \
+>   --runtime node-22 --entrypoint src/index.js --execute users --timeout 60 \
+>   --build-specification s-0.5vcpu-512mb --runtime-specification s-0.5vcpu-512mb \
+>   --schedule '*/5 4-5,9-10 * * *'
+> ```
+>
+> then redeploy.
 
 ## Tests
 
