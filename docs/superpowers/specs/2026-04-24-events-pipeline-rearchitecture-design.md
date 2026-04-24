@@ -280,7 +280,12 @@ Based on observed current averages and expected-work scaling:
 1. **Image fix first (low risk).** Land the `/nmcms/` banner-image fallback in the *current* architecture's Phase 2a enrichment script. Verifies the selector against real sessions, ships user-visible improvement immediately. Independent of the rest.
 2. **Playbook split + cleanup pass.** No behavior change. Pure file reorganization. The current `agent.ts` keeps loading what it loads today (concatenated `listing.md + enrichment.md`) until step 3.
 3. **Architecture migration.** Implement Phase 2a/2b listing-only sessions and Phase 3 rank+enrich session. Update `src/events/agent.ts` orchestrator. Update prompt builders to use the system/user split.
-4. **Measure over 5–10 runs.** Compare token cost and image coverage against the targets. Revisit split-session Phase 3 only if combined brittleness shows up.
+4. **Validate against chennai before letting the scheduler hit bengaluru.** Run `npx tsx src/run-events.ts chennai` manually 2–3 times. For each run, inspect the resulting session jsonl files under `~/.claude/projects/-Users-hanif-Desktop-projects-live-city/` and sum tokens; inspect chennai rows in Appwrite for image coverage and event quality. Compare against chennai's historical numbers (BMS ~2.2M, District ~1.3M, total ~4.3M per full run). Pass criteria:
+   - Total tokens ≤ ~1.7M per run (≥60% reduction)
+   - Image coverage for ticketed events (bookmyshow + district) ≥ 90%
+   - Eyeball check: top events look comparable to historical chennai runs
+
+   If it passes, commit and let the 8-hour scheduler pick up all cities normally. If it fails, the run-events.ts entry point is non-destructive to bengaluru (different rows keyed by city); investigate before wider rollout.
 
 ## Open questions
 
