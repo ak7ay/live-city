@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { captureResponseText, createPlainSession, retryValidation } from "../agent/index.js";
@@ -252,6 +252,15 @@ async function runPhase1(
 ): Promise<void> {
 	const log = logger.child({ module: "news-agent", phase: 1, source });
 	const outputFile = `stories-${source}.md`;
+	const outputPath = join(cwd, outputFile);
+
+	// Clear any stale file from an earlier run today so the agent's first Write
+	// doesn't trip Claude Code's read-before-write guard on the prior file.
+	if (existsSync(outputPath)) {
+		unlinkSync(outputPath);
+		log.info({ file: outputFile }, "Removed stale stories file from earlier run");
+	}
+
 	log.info("Starting phase 1 extraction");
 
 	const session = await createPlainSession(cwd, extractionSystemPrompt(city, source, playbook, today));
@@ -260,7 +269,6 @@ async function runPhase1(
 		await session.prompt(extractionUserPrompt(source, city, today));
 		capture.stop();
 
-		const outputPath = join(cwd, outputFile);
 		if (!existsSync(outputPath)) {
 			throw new Error(`Phase 1: agent did not write ${outputFile}`);
 		}
