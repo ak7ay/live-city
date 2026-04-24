@@ -1,18 +1,19 @@
 # price (Appwrite function)
 
 Pulls Lalithaa Jewellery rates for each configured city and writes them into the
-`metal_prices` table. Sends a push notification to `prices-<city>` when a price
-changes vs. today's most recent row (or yesterday's last row if this is the first
-row of the day).
+`metal_prices` table. Sends at most one push notification per city per day to
+`prices-<city>` — gated on the first gold-price change of the day vs. yesterday's
+last row. The notification body still includes both gold and silver deltas when
+present; a silver-only change (no gold move) does not trigger a push.
 
 ## Schedule
 
-Cron (UTC superset): `*/5 4-5,9-10 * * *`
+Cron (UTC superset): `*/5 4-5,9-13 * * *`
 
-Handler filters to IST `[09:30, 10:30] ∪ [15:00, 16:00]` — the two daily windows
-Lalithaa's rates actually change. Scheduled invocations outside those windows
-exit early with `{ skipped: true, reason: "outside_ist_window" }`. Manual
-invocations (HTTP trigger) run unconditionally.
+Handler filters to IST `[09:30, 10:30]` every 5 min and `[15:00, 19:00]` every
+10 min — the two daily windows Lalithaa's rates actually change. Scheduled
+invocations outside those windows exit early with `{ skipped: true, reason:
+"outside_ist_window" }`. Manual invocations (HTTP trigger) run unconditionally.
 
 ## Environment variables
 
@@ -49,7 +50,7 @@ appwrite functions create \
   --commands "npm install" \
   --build-specification s-0.5vcpu-512mb \
   --runtime-specification s-0.5vcpu-512mb \
-  --schedule '*/5 4-5,9-10 * * *'
+  --schedule '*/5 4-5,9-13 * * *'
 
 # Set env vars (re-run to update)
 appwrite functions create-variable --function-id price --key APPWRITE_ENDPOINT --value "https://sgp.cloud.appwrite.io/v1"
@@ -71,7 +72,7 @@ appwrite functions create-deployment \
 > appwrite functions update --function-id price --commands "npm install" \
 >   --runtime node-22 --entrypoint src/index.js --execute users --timeout 60 \
 >   --build-specification s-0.5vcpu-512mb --runtime-specification s-0.5vcpu-512mb \
->   --schedule '*/5 4-5,9-10 * * *'
+>   --schedule '*/5 4-5,9-13 * * *'
 > ```
 >
 > then redeploy.
