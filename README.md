@@ -9,7 +9,7 @@ Launches as **Live Bengaluru**, expandable to other cities by adding a YAML conf
 - **Extraction:** pi-coding-agent SDK (headless) + browser-tools skill (Chrome DevTools Protocol)
 - **LLM Auth:** Claude OAuth subscription (no API keys)
 - **Database/API:** Appwrite Cloud (auto REST API, push notifications, storage)
-- **Scheduling:** node-cron
+- **Scheduling:** croner
 - **Language:** TypeScript, Node.js ≥22
 
 ## Setup
