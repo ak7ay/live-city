@@ -2,7 +2,7 @@ import { Client, Messaging, TablesDB } from "node-appwrite";
 import { isWithinPriceWindow } from "./ist-window.js";
 import { fetchPrice, resolveStateIds } from "./lalithaa.js";
 import { buildPriceChangeEvent, sendPriceNotification } from "./price-notifier.js";
-import { updatePriceForCity } from "./prices-updater.js";
+import { fetchNotificationContext, isFirstGoldChangeOfDay, updatePriceForCity } from "./prices-updater.js";
 
 const LALITHAA_SOURCE = "lalithaa_jewellery";
 const STATES_API_URL = "https://api.lalithaajewellery.com/public/states";
@@ -11,7 +11,7 @@ const PRICES_API_URL = "https://api.lalithaajewellery.com/public/pricings/latest
 export default async ({ req, res, log, error }) => {
 	const now = new Date();
 
-	// Cron superset is `*/5 4-5,9-10 * * *` UTC — filter to the exact IST windows inside.
+	// Cron superset is `*/5 4-5,9-13 * * *` UTC — filter to the exact IST windows inside.
 	const scheduledTrigger = req.headers["x-appwrite-trigger"] === "schedule";
 	if (scheduledTrigger && !isWithinPriceWindow(now)) {
 		log(`Outside IST price window (now=${now.toISOString()}), skipping.`);
@@ -33,11 +33,15 @@ export default async ({ req, res, log, error }) => {
 	for (const [city, { stateId }] of stateMap) {
 		try {
 			const prices = await fetchPrice(PRICES_API_URL, stateId);
-			const { action, priorRow } = await updatePriceForCity(db, city, LALITHAA_SOURCE, prices);
+			const { action } = await updatePriceForCity(db, city, LALITHAA_SOURCE, prices);
 
-			if (action !== "checked" && priorRow) {
-				const event = buildPriceChangeEvent(city, priorRow, prices);
-				if (event.deltas.length > 0) {
+			// Notify at most once per city per day: the first row today whose
+			// gold price diverges from yesterday's last row. Check after writing
+			// so the fresh row is included in the count.
+			if (action !== "checked") {
+				const { yesterdayRef, todayRows } = await fetchNotificationContext(db, city, LALITHAA_SOURCE);
+				if (isFirstGoldChangeOfDay(todayRows, yesterdayRef)) {
+					const event = buildPriceChangeEvent(city, yesterdayRef, prices);
 					try {
 						await sendPriceNotification(messaging, event);
 					} catch (notifyErr) {

@@ -29,9 +29,9 @@ Convention:
 
 Appwrite function `schedule` is a standard 5-field cron in **UTC** (one expression per function, no timezone field). IST (+5:30) never aligns cleanly to UTC hour boundaries, so for IST-bounded windows the cleanest pattern is: trigger a superset window in UTC cron, then filter by current IST time inside the function.
 
-Example — prices should run every 5 min during 09:30–10:30 IST (04:00–05:00 UTC) and 15:00–16:00 IST (09:30–10:30 UTC):
-- Cron (UTC superset): `*/5 4-5,9-10 * * *`
-- Inside handler: compute IST `hh:mm` and return early if outside `[09:30, 10:30]` ∪ `[15:00, 16:00]`.
+Example — prices should run every 5 min during 09:30–10:30 IST (04:00–05:00 UTC) and every 10 min during 15:00–19:00 IST (09:30–13:30 UTC):
+- Cron (UTC superset): `*/5 4-5,9-13 * * *`
+- Inside handler: compute IST `hh:mm` and return early if outside `[09:30, 10:30]` ∪ `[15:00, 19:00]`; within the afternoon window, also skip 5-min offset ticks to achieve the 10-min cadence.
 
 ## Agent Runtime
 

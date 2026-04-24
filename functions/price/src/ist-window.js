@@ -1,17 +1,22 @@
-// Returns true if `date` (a JS Date) falls inside one of the two daily
-// IST windows where Lalithaa Jewellery's published rates actually change:
-// 09:30–10:30 IST and 15:00–16:00 IST (both inclusive of endpoints).
+// Returns true if `date` (a JS Date) falls inside one of the two daily IST
+// windows where Lalithaa Jewellery's rates actually change: 09:30–10:30 IST
+// (every 5 min) and 15:00–19:00 IST (every 10 min). The cron runs every 5
+// min across the UTC superset, so the afternoon branch filters out the odd
+// 5-min ticks to achieve a 10-min cadence.
 export function isWithinPriceWindow(date) {
 	const istMinutes = istMinutesOfDay(date);
 	const morningStart = 9 * 60 + 30; // 09:30
 	const morningEnd = 10 * 60 + 30; // 10:30
 	const afternoonStart = 15 * 60; // 15:00
-	const afternoonEnd = 16 * 60; // 16:00
+	const afternoonEnd = 19 * 60; // 19:00
 
-	return (
-		(istMinutes >= morningStart && istMinutes <= morningEnd) ||
-		(istMinutes >= afternoonStart && istMinutes <= afternoonEnd)
-	);
+	if (istMinutes >= morningStart && istMinutes <= morningEnd) {
+		return true;
+	}
+	if (istMinutes >= afternoonStart && istMinutes <= afternoonEnd) {
+		return istMinutes % 10 === 0;
+	}
+	return false;
 }
 
 function istMinutesOfDay(date) {

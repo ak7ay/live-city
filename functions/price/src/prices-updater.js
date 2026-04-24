@@ -35,6 +35,28 @@ export async function fetchMostRecentRowBefore(db, city, source, beforeDate) {
 	return result.rows[0];
 }
 
+// Pure check: given all of today's rows and yesterday's reference row, is
+// exactly one of today's rows diverging from yesterday's gold price? If yes,
+// this represents the first gold change of the day and should trigger a push.
+// Returning `false` when there are 0 diverging rows (no change yet) or 2+
+// (already diverged earlier today) naturally caps pushes at one per day.
+export function isFirstGoldChangeOfDay(todayRows, yesterdayRef) {
+	if (!yesterdayRef) return false;
+	const goldDiffCount = todayRows.filter((r) => r.gold_22k_price !== yesterdayRef.gold_22k_price).length;
+	return goldDiffCount === 1;
+}
+
+export async function fetchNotificationContext(db, city, source) {
+	const today = getTodayIST();
+	const yesterdayRef = await fetchMostRecentRowBefore(db, city, source, today);
+	const todayResult = await db.listRows({
+		databaseId: DB_ID,
+		tableId: TABLE_METAL_PRICES,
+		queries: [Query.equal("city", city), Query.equal("source", source), Query.equal("price_date", today)],
+	});
+	return { yesterdayRef, todayRows: todayResult.rows };
+}
+
 // Returns { action: "new_row" | "price_changed" | "checked", priorRow }
 export async function updatePriceForCity(db, city, source, prices) {
 	const today = getTodayIST();
