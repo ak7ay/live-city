@@ -119,6 +119,26 @@ Store rule: `image_url = listing.image || enrichment.banner_image || null`.
 
 Apply the same pattern to every phase: **static job description goes in the system prompt; per-run task data goes in the user prompt.**
 
+### Migration from current placement
+
+Today, the per-source user prompts (`bmsUserPrompt`, `districtUserPrompt` in [src/events/agent.ts](src/events/agent.ts)) carry a substantial amount of static content that should have been system-prompt material. The rearchitecture moves it to where it belongs. Summary of the move:
+
+| Content | Current location | New location | Why |
+|---|---|---|---|
+| Steps list (1. Extract listings, 2. Select top N, 3. Enrich) | user prompt | system prompt | Stable across runs; describes the job, not the task. |
+| "Previously Scraped Events" reuse policy (the prose) | user prompt | system prompt (Phase 3 only) | Policy is stable; only the cache file path is per-run. |
+| Previous-run cache file path | user prompt (interpolated into prose) | user prompt (as its own line) | Per-run value; extracted from the policy prose so the system-prompt policy stays 100% stable across runs. |
+| Output JSON schema / field definitions | user prompt | system prompt | Stable across runs. |
+| Selection rules ("prefer in-window dates", category diversity hints) | user prompt | system prompt | Stable. |
+| City slug, today's date, target window | user prompt | user prompt | Genuinely per-run; stays. |
+
+Two reasons this matters, beyond the semantic fit:
+
+1. **System prompt cache stays stable across runs**, since the only interpolated values (cache path, city, date) now live only in the user prompt. Any future cross-session cache reuse sees a clean hit.
+2. **The Phase 3 system prompt no longer invalidates per run** just because the cache file path changed string-wise — important because Phase 3's system prompt now also carries both enrichment playbooks (it's the biggest of the three).
+
+
+
 ### Phase 2a — BMS listing
 
 **System prompt (stable across runs):**
