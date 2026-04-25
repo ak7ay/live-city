@@ -18,7 +18,7 @@ async function main(): Promise<void> {
 
 	// Serialize per tick so the two cities don't each spawn concurrent Claude
 	// Agent sessions — back-to-back is cheaper and keeps logs readable.
-	startScheduler("news-all-cities", "0 8,18 * * *", async () => {
+	startScheduler("news-all-cities", "0 8,17 * * *", async () => {
 		for (const city of NEWS_EVENT_CITIES) {
 			try {
 				await updateNewsForCity(db, city);

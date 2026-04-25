@@ -43,15 +43,16 @@ Since 2026-04-23, prices run on an Appwrite function (see [functions/price/READM
 07:50 — Mac wakes (pmset repeat wakeorpoweron)
 08:00 — news job fires (node-cron inside npm run dev)
 09:00 — events job fires
-09:40 — launchd agent com.livecity.schedule-evening-wake schedules a
-        one-shot pmset wake for 17:50 today
+09:40 — launchd *daemon* com.livecity.schedule-evening-wake schedules a
+        one-shot pmset wake for 16:50 today (must be a system LaunchDaemon,
+        not a user LaunchAgent — `pmset schedule` requires root)
 09:45 — launchd agent com.livecity.sleep-morning sleeps the mini
-17:50 — Mac wakes (one-shot pmset wake)
-18:00 — news job fires
-18:30 — launchd agent com.livecity.sleep-evening sleeps the mini
+16:50 — Mac wakes (one-shot pmset wake)
+17:00 — news job fires
+18:00 — launchd agent com.livecity.sleep-evening sleeps the mini
 ```
 
-All times IST. Total awake ≈ 2h 35m/day (down from ~11h).
+All times IST. Total awake ≈ 3h 5m/day (down from ~11h).
 
 **Setup (one-time):**
 
@@ -62,18 +63,26 @@ sudo pmset -a sleep 0
 # Morning wake every day
 sudo pmset repeat wakeorpoweron MTWRFSU 07:50:00
 
-# Launchd agents
+# User LaunchAgents (run as $USER) — sleep jobs only
 launchctl unload ~/Library/LaunchAgents/com.livecity.sleep.plist 2>/dev/null || true
 launchctl load   ~/Library/LaunchAgents/com.livecity.sleep-morning.plist
-launchctl load   ~/Library/LaunchAgents/com.livecity.schedule-evening-wake.plist
 launchctl load   ~/Library/LaunchAgents/com.livecity.sleep-evening.plist
+
+# System LaunchDaemon (runs as root) — schedules the evening pmset wake.
+# This plist MUST live in /Library/LaunchDaemons/ with root:wheel ownership.
+# Do NOT put it in ~/Library/LaunchAgents/: `pmset schedule wake` exits with
+# "This operation must be run as root" when invoked from a user agent, and
+# the daemon will silently fail every day at 09:40.
+sudo chown root:wheel /Library/LaunchDaemons/com.livecity.schedule-evening-wake.plist
+sudo launchctl load   /Library/LaunchDaemons/com.livecity.schedule-evening-wake.plist
 ```
 
 **Verify:**
 
 ```bash
-pmset -g sched                            # expect morning repeat + today's 17:50 one-shot
-launchctl list | grep livecity            # expect three com.livecity.* entries
+pmset -g sched                                          # expect morning repeat + today's 16:50 one-shot
+launchctl list | grep livecity                          # expect 2 user agents (sleep-morning, sleep-evening)
+sudo launchctl print system | grep livecity             # expect schedule-evening-wake daemon
 ```
 
 See [DESIGN.md](DESIGN.md) for architecture, decisions, and deployment details.
