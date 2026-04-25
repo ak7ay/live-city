@@ -14,7 +14,8 @@ Orchestration is in `src/events/agent.ts`, not in agent prompts.
 
 - `bookmyshow/listing.md` — BMS listing extraction
 - `bookmyshow/enrichment.md` — BMS detail-page enrichment (incl. /nmcms/ image fallback)
-- `playbook-district.md` — District.in extraction + enrichment steps
+- `district/listing.md` — District.in listing extraction
+- `district/enrichment.md` — District.in detail-page enrichment
 
 Each playbook is used entirely within its source session. Playbook feedback (self-correction) happens in the same session that used the playbook.
 

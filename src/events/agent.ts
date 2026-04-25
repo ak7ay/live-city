@@ -402,7 +402,7 @@ const EVENT_SOURCES: EventSourceDef[] = [
 	{
 		key: "district",
 		label: "District",
-		playbookFiles: ["playbook-district.md"],
+		playbookFiles: ["district/listing.md", "district/enrichment.md"],
 		buildSystemPrompt: districtSystemPrompt,
 		buildUserPrompt: districtUserPrompt,
 	},
