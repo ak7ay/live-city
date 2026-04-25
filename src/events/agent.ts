@@ -82,8 +82,9 @@ function findStoryFiles(city: string, today: string): string[] {
 	}
 }
 
-function readPlaybook(cwd: string, name: string): string {
-	return readFileSync(join(cwd, "memory", "events", name), "utf-8");
+function readPlaybook(cwd: string, names: string | string[]): string {
+	const list = Array.isArray(names) ? names : [names];
+	return list.map((n) => readFileSync(join(cwd, "memory", "events", n), "utf-8")).join("\n\n---\n\n");
 }
 
 // ── Prompt builders ─────────────────────────────────────────────────
@@ -385,7 +386,7 @@ async function collectNewsEvents(city: string, today: string, cwd: string): Prom
 interface EventSourceDef {
 	key: string;
 	label: string;
-	playbookFile: string;
+	playbookFiles: string[];
 	buildSystemPrompt: (params: SourcePromptParams) => string;
 	buildUserPrompt: (params: SourceUserParams) => string;
 }
@@ -394,14 +395,14 @@ const EVENT_SOURCES: EventSourceDef[] = [
 	{
 		key: "bms",
 		label: "BMS",
-		playbookFile: "playbook-bookmyshow.md",
+		playbookFiles: ["bookmyshow/listing.md", "bookmyshow/enrichment.md"],
 		buildSystemPrompt: bmsSystemPrompt,
 		buildUserPrompt: bmsUserPrompt,
 	},
 	{
 		key: "district",
 		label: "District",
-		playbookFile: "playbook-district.md",
+		playbookFiles: ["playbook-district.md"],
 		buildSystemPrompt: districtSystemPrompt,
 		buildUserPrompt: districtUserPrompt,
 	},
@@ -419,7 +420,7 @@ async function collectSourceEvents(
 	const config = CITY_CONFIG[city];
 	if (!config) throw new Error(`No city config for: ${city}`);
 
-	const playbook = readPlaybook(cwd, source.playbookFile);
+	const playbook = readPlaybook(cwd, source.playbookFiles);
 
 	log.info(`Starting ${source.label} collection + enrichment`);
 
@@ -446,7 +447,7 @@ async function collectSourceEvents(
 
 Keep the playbook concise — only actionable notes that help future runs. Don't let it grow unboundedly.
 
-File: memory/events/${source.playbookFile}
+File(s): ${source.playbookFiles.map((f) => `memory/events/${f}`).join(", ")}
 
 If everything worked, say "No playbook changes needed."`);
 		feedbackCapture.stop();
