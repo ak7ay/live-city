@@ -349,6 +349,55 @@ If the file is empty or missing, scrape all top 10 as usual.
 5. **Step 4 from playbook**: Parse datetime into event_date and event_time`;
 }
 
+// ── Phase 2b: District listing-only ──────────────────────────────────
+
+function districtListingSystemPrompt(city: string, listingPlaybook: string): string {
+	return `\
+You are a District.in listing extractor for ${city}.
+
+## Scraping Playbook
+
+${listingPlaybook}
+
+## Steps
+
+1. Set the city cookie exactly as Step 1 of the playbook instructs.
+2. Chain nav + eval with \`&&\` (no sleep) to extract Step 2's listing.
+3. Filter by target city per the playbook.
+4. Dedup by title+listing_date+venue_line.
+5. Return ONLY a JSON array of listing candidates — no markdown fences, no detail-page visits.
+
+## Output Format
+
+Each object:
+{
+  "source": "district",
+  "title": "string (non-empty)",
+  "source_url": "string (the card's href)",
+  "image_url": "string from img.src, or null",
+  "listing_date": "string from the datetime field in the listing, or null",
+  "venue_line": "string from the card's venue line, or null",
+  "category": null,
+  "price": "string from the card, or null"
+}
+
+Note: District does not expose category on the listing — set to null; Phase 3 infers it during enrichment.
+
+Return at minimum ${MIN_CANDIDATES_PER_SOURCE} candidates.`;
+}
+
+function districtListingUserPrompt(city: string, config: (typeof CITY_CONFIG)[string], today: string): string {
+	return `\
+Extract the District.in listing for ${city}.
+
+City config:
+- city_slug: ${city}
+- city_name: ${config.district_name}
+- lat: ${config.district_lat}
+- long: ${config.district_long}
+Today: ${today}`;
+}
+
 // Phase 3: Ranking
 
 function rankingSystemPrompt(city: string, today: string): string {
@@ -589,6 +638,66 @@ Do NOT touch memory/events/bookmyshow/enrichment.md — that's Phase 3's concern
 ${FEEDBACK_EDIT_BAR}`);
 		feedbackCapture.stop();
 		log.info("BMS listing feedback complete");
+
+		return candidates;
+	} finally {
+		session.dispose();
+	}
+}
+
+export async function collectDistrictListings(city: string, today: string, cwd: string): Promise<ListingCandidate[]> {
+	const log = logger.child({ module: "events-agent", phase: "2b-district-listing" });
+	const config = CITY_CONFIG[city];
+	if (!config) throw new Error(`No city config for: ${city}`);
+
+	const listingPlaybook = readFileSync(join(cwd, "memory", "events", "district", "listing.md"), "utf-8");
+	log.info("Starting District listing-only extraction");
+
+	const session = await createBrowserSession(cwd, districtListingSystemPrompt(city, listingPlaybook));
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(districtListingUserPrompt(city, config, today));
+		capture.stop();
+
+		let candidates: ListingCandidate[] = await retryValidation(
+			session,
+			capture.getText(),
+			listingCandidatesSchema,
+			log,
+		);
+
+		const check = findInvalidCandidates(candidates, MIN_CANDIDATES_PER_SOURCE);
+		if (!check.countOk || check.invalid.length > 0) {
+			log.info({ count: candidates.length, invalid: check.invalid }, "Listing validation failed, asking for fixes");
+			const msg = [
+				check.countOk
+					? null
+					: `Your output had only ${candidates.length} candidates; we need at least ${MIN_CANDIDATES_PER_SOURCE}.`,
+				check.invalid.length > 0
+					? `The following candidates are malformed:\n${check.invalid
+							.map((i) => `  - ${i.source_url}: ${i.reasons.join(", ")}`)
+							.join("\n")}`
+					: null,
+				"Re-extract the listing and return the corrected JSON array only. No markdown fences.",
+			]
+				.filter(Boolean)
+				.join("\n\n");
+			const retry = captureResponseText(session);
+			await session.prompt(msg);
+			retry.stop();
+			candidates = await retryValidation(session, retry.getText(), listingCandidatesSchema, log);
+		}
+
+		log.info({ count: candidates.length }, "District listing candidates collected");
+
+		log.info("Requesting District listing playbook feedback");
+		const feedbackCapture = captureResponseText(session);
+		await session.prompt(`Review your session. You may edit ONLY memory/events/district/listing.md.
+Do NOT touch memory/events/district/enrichment.md — that's Phase 3's concern.
+
+${FEEDBACK_EDIT_BAR}`);
+		feedbackCapture.stop();
+		log.info("District listing feedback complete");
 
 		return candidates;
 	} finally {
