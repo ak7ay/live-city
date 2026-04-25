@@ -27,6 +27,7 @@ import { findInvalidCandidates } from "./validators.js";
 
 const TOP_TICKETED_COUNT = 10;
 const EVENT_HORIZON_DAYS = 7;
+const MIN_CANDIDATES_PER_SOURCE = 10; // symmetric with TOP_TICKETED_COUNT
 
 /**
  * Validate enriched events with one retry:
@@ -555,11 +556,13 @@ export async function collectBmsListings(city: string, today: string, cwd: strin
 		);
 
 		// ── Post-schema validation (count + required-field check) ──
-		const check = findInvalidCandidates(candidates, 10);
+		const check = findInvalidCandidates(candidates, MIN_CANDIDATES_PER_SOURCE);
 		if (!check.countOk || check.invalid.length > 0) {
 			log.info({ count: candidates.length, invalid: check.invalid }, "Listing validation failed, asking for fixes");
 			const msg = [
-				check.countOk ? null : `Your output had only ${candidates.length} candidates; we need at least 10.`,
+				check.countOk
+					? null
+					: `Your output had only ${candidates.length} candidates; we need at least ${MIN_CANDIDATES_PER_SOURCE}.`,
 				check.invalid.length > 0
 					? `The following candidates are malformed:\n${check.invalid
 							.map((i) => `  - ${i.source_url}: ${i.reasons.join(", ")}`)
