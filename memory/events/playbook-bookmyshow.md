@@ -66,6 +66,18 @@ Events without a `date` (null) are further down the ranking. **Do not skip them 
 
 ---
 
+### Image fallback rule
+
+When composing the final event JSON, set `image_url` as follows:
+
+1. If the listing card's `image` was non-null, use it.
+2. Otherwise use `banner_image` from the Step 2 eval output (see below).
+3. Otherwise `null`.
+
+The listing image is often null for small/recurring events (lazy-loaded placeholder cards), but the detail page carries a banner under `assets-in.bmscdn.com/.../nmcms/…` — the Step 2 eval extracts this as `banner_image`.
+
+---
+
 ## Step 2: Enrich top events from detail pages
 
 For each event you want to include, visit its URL and extract the detail fields the frontend needs.
@@ -116,6 +128,7 @@ browser-eval '(function() {
     time: info ? info[2] : null,
     duration: info ? info[3] : null,
     venue_full: venue ? venue[1].trim() : null,
+    banner_image: Array.from(document.querySelectorAll("img")).map(function(i){return i.src;}).find(function(s){return s && s.indexOf("/nmcms/") >= 0 && s.indexOf("/synopsis/") < 0;}) || null,
     description: desc.slice(0, 500)
   }, null, 2);
 })()'
