@@ -75,12 +75,21 @@ describe("findInvalidCandidates", () => {
 });
 
 describe("findInvalidFinalEvents", () => {
-	it("accepts valid events at target count", () => {
+	it("accepts valid events when count >= minTicketed", () => {
 		const events = [makeEventArticle({ rank: 1 }), makeEventArticle({ source_url: "u2", rank: 2 })];
 		expect(findInvalidFinalEvents(events, 2)).toEqual({ countOk: true, invalid: [], duplicates: [] });
 	});
 
-	it("flags count != target", () => {
+	it("accepts when count exceeds minTicketed (extra news/carry-forward allowed)", () => {
+		const events = [
+			makeEventArticle({ rank: 1 }),
+			makeEventArticle({ source_url: "u2", rank: 2 }),
+			makeEventArticle({ source: "news", source_url: "u3", image_url: null, rank: 3 }),
+		];
+		expect(findInvalidFinalEvents(events, 2).countOk).toBe(true);
+	});
+
+	it("flags count below minTicketed", () => {
 		expect(findInvalidFinalEvents([makeEventArticle()], 2).countOk).toBe(false);
 	});
 

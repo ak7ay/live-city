@@ -48,13 +48,16 @@ export interface FinalValidationResult {
 /**
  * Validate Phase 3 rank+enrich output.
  *
- * - `countOk` is true when the final array length equals the target count.
+ * - `countOk` is true when the array contains at least `minTicketed` events.
+ *   We don't enforce an upper bound or exact match: the agent may legitimately
+ *   drop stale carry-forward news or dedup against today's news, so the final
+ *   count is `>= minTicketed` rather than a fixed total.
  * - Every event must have non-empty `event_date`, `source`, `source_url`.
  * - Ticketed sources (`bookmyshow`, `district`) must have non-null `image_url`;
  *   news is exempt (news extraction doesn't produce image URLs today).
  * - `duplicates` lists any `source_url` that appears more than once.
  */
-export function findInvalidFinalEvents(events: EventArticle[], targetCount: number): FinalValidationResult {
+export function findInvalidFinalEvents(events: EventArticle[], minTicketed: number): FinalValidationResult {
 	const invalid: InvalidEntry[] = [];
 	const seen = new Map<string, number>();
 	for (const e of events) {
@@ -71,7 +74,7 @@ export function findInvalidFinalEvents(events: EventArticle[], targetCount: numb
 	}
 	const duplicates = [...seen.entries()].filter(([, n]) => n > 1).map(([url]) => url);
 	return {
-		countOk: events.length === targetCount,
+		countOk: events.length >= minTicketed,
 		invalid,
 		duplicates,
 	};

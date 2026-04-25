@@ -381,15 +381,21 @@ async function rankAndEnrich(
 		let events: EventArticle[] = await retryValidation(session, capture.getText(), eventArticlesSchema, log);
 
 		// ── Post-schema validation ──
-		const targetCount = TOP_TICKETED_COUNT + newsEvents.length + previousEvents.length;
-		const check = findInvalidFinalEvents(events, targetCount);
+		const check = findInvalidFinalEvents(events, TOP_TICKETED_COUNT);
 		if (!check.countOk || check.invalid.length > 0 || check.duplicates.length > 0) {
 			log.info(
-				{ count: events.length, target: targetCount, invalid: check.invalid, duplicates: check.duplicates },
+				{
+					count: events.length,
+					minTicketed: TOP_TICKETED_COUNT,
+					invalid: check.invalid,
+					duplicates: check.duplicates,
+				},
 				"Phase 3 validation failed, asking for fixes",
 			);
 			const msg = [
-				check.countOk ? null : `Expected ${targetCount} events; got ${events.length}.`,
+				check.countOk
+					? null
+					: `Got only ${events.length} events; need at least ${TOP_TICKETED_COUNT} ticketed picks.`,
 				check.invalid.length > 0
 					? `Malformed events:\n${check.invalid
 							.map((i) => `  - ${i.source_url}: ${i.reasons.join(", ")}`)
