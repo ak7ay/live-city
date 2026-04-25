@@ -21,7 +21,7 @@ import {
 	rawEventsSchema,
 } from "./schema.js";
 import { getLiveEventsForCity } from "./store.js";
-import { findInvalidCandidates } from "./validators.js";
+import { findInvalidCandidates, findInvalidFinalEvents } from "./validators.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -396,6 +396,216 @@ City config:
 - lat: ${config.district_lat}
 - long: ${config.district_long}
 Today: ${today}`;
+}
+
+// ── Phase 3: Rank + enrich ───────────────────────────────────────────
+
+function rankAndEnrichSystemPrompt(
+	city: string,
+	today: string,
+	maxDate: string,
+	bmsEnrichmentPlaybook: string,
+	districtEnrichmentPlaybook: string,
+): string {
+	return `\
+You are the events editor for ${city}.
+
+Your job: rank a pool of listing candidates plus news events to a final top ${TOP_TICKETED_COUNT} ticketed events (plus all news events passed through), then enrich each ticketed pick by visiting its detail page.
+
+## Ranking Rules
+
+1. **HARD CUTOFF**: Only include events with event_date between ${today} and ${maxDate} (7-day window).
+2. **Time proximity** — events happening sooner rank higher (today is ${today}).
+3. **Significance** — big concerts, major sports, large festivals > small bar gigs.
+4. **Cross-source boost** — if the same event appears on both BMS and District, pick one (prefer the one with more listing fields populated) and treat it as higher signal.
+5. **Image presence as a quality signal** — BMS lists low-priority events with null listing images; treat them as lower confidence.
+6. **Category diversity** — avoid clustering same-category picks.
+7. **Skip null listing dates** unless you have another reason to include.
+
+## Enrichment Rules
+
+After selecting the top ${TOP_TICKETED_COUNT} ticketed events, visit each one's detail page to enrich fields. The enrichment playbooks below (one per source) describe exactly how.
+
+### Reuse from previous run
+
+If the user provides a \`previous_events_path\` that references a JSON file of previously-enriched events, load it. For any selected candidate whose \`source_url\` matches an entry in that file, **reuse the enriched fields (description, event_date, event_time, duration, venue_name, venue_area, image_url)** instead of visiting the detail page. Only visit detail pages for URLs not in the cache.
+
+### News events
+
+News events are already enriched — pass them through without detail visits. Transform the venue string per the ranking transformation rules (split on comma/colon, or use full string as venue_name with null area).
+
+## BookMyShow enrichment playbook
+
+${bmsEnrichmentPlaybook}
+
+---
+
+## District enrichment playbook
+
+${districtEnrichmentPlaybook}
+
+---
+
+## Output Format
+
+Return ONLY a JSON array (no markdown fences). One object per final event. Must have exactly ${TOP_TICKETED_COUNT} ticketed entries + all news events:
+
+{
+  "title": "string",
+  "description": "string (1-3 sentences)",
+  "category": "string",
+  "event_date": "string (non-empty, e.g. Fri, 17 Apr 2026)",
+  "event_time": "string or null",
+  "duration": "string or null",
+  "venue_name": "string or null",
+  "venue_area": "string or null",
+  "price": "string or null",
+  "source": "news | bookmyshow | district",
+  "source_url": "string",
+  "image_url": "string (non-null for ticketed sources per image fallback) or null (news only)",
+  "rank": 1
+}
+
+Rank 1 = most important. News events first, then ticketed by rank.`;
+}
+
+function rankAndEnrichUserPrompt(
+	city: string,
+	today: string,
+	newsEvents: RawEvent[],
+	bmsCandidates: ListingCandidate[],
+	districtCandidates: ListingCandidate[],
+	previousEvents: EventArticle[],
+	previousEventsPath: string,
+): string {
+	return `\
+Rank and enrich events for ${city}. Today: ${today}
+
+## Previous-run cache
+
+previous_events_path: ${previousEventsPath}
+
+(Reuse policy is in the system prompt. Apply only if a selected source_url matches an entry.)
+
+## News events (already enriched — pass through)
+${newsEvents.length > 0 ? JSON.stringify(newsEvents, null, 2) : "None found today."}
+
+## BookMyShow listing candidates
+${bmsCandidates.length > 0 ? JSON.stringify(bmsCandidates, null, 2) : "None."}
+
+## District.in listing candidates
+${districtCandidates.length > 0 ? JSON.stringify(districtCandidates, null, 2) : "None."}
+
+## Previously captured news events (carry-forward candidates)
+${previousEvents.length > 0 ? JSON.stringify(previousEvents, null, 2) : "None."}
+
+## Steps
+
+1. Rank candidates per the system prompt's ranking rules.
+2. For each selected ticketed event: if its source_url is in the cache file, reuse; otherwise visit the detail page and enrich using the appropriate source's enrichment playbook.
+3. Return the final JSON array.`;
+}
+
+export async function rankAndEnrich(
+	newsEvents: RawEvent[],
+	bmsCandidates: ListingCandidate[],
+	districtCandidates: ListingCandidate[],
+	previousEvents: EventArticle[],
+	previousEventsPath: string,
+	city: string,
+	today: string,
+	maxDate: string,
+	cwd: string,
+): Promise<EventArticle[]> {
+	const log = logger.child({ module: "events-agent", phase: "3-rank-enrich" });
+
+	const bmsEnrichmentPlaybook = readFileSync(join(cwd, "memory", "events", "bookmyshow", "enrichment.md"), "utf-8");
+	const districtEnrichmentPlaybook = readFileSync(join(cwd, "memory", "events", "district", "enrichment.md"), "utf-8");
+
+	log.info(
+		{
+			news: newsEvents.length,
+			bms: bmsCandidates.length,
+			district: districtCandidates.length,
+			previousCached: previousEvents.length,
+		},
+		"Starting Phase 3 rank + enrich",
+	);
+
+	const session = await createBrowserSession(
+		cwd,
+		rankAndEnrichSystemPrompt(city, today, maxDate, bmsEnrichmentPlaybook, districtEnrichmentPlaybook),
+	);
+	try {
+		const capture = captureResponseText(session);
+		await session.prompt(
+			rankAndEnrichUserPrompt(
+				city,
+				today,
+				newsEvents,
+				bmsCandidates,
+				districtCandidates,
+				previousEvents,
+				previousEventsPath,
+			),
+		);
+		capture.stop();
+
+		let events: EventArticle[] = await retryValidation(session, capture.getText(), eventArticlesSchema, log);
+
+		// ── Post-schema validation ──
+		const targetCount = TOP_TICKETED_COUNT + newsEvents.length + previousEvents.length;
+		const check = findInvalidFinalEvents(events, targetCount);
+		if (!check.countOk || check.invalid.length > 0 || check.duplicates.length > 0) {
+			log.info(
+				{ count: events.length, target: targetCount, invalid: check.invalid, duplicates: check.duplicates },
+				"Phase 3 validation failed, asking for fixes",
+			);
+			const msg = [
+				check.countOk ? null : `Expected ${targetCount} events; got ${events.length}.`,
+				check.invalid.length > 0
+					? `Malformed events:\n${check.invalid
+							.map((i) => `  - ${i.source_url}: ${i.reasons.join(", ")}`)
+							.join(
+								"\n",
+							)}\n\nFor each malformed ticketed event, either re-enrich it (re-navigate and re-extract) or substitute the next-best candidate from the listing pool.`
+					: null,
+				check.duplicates.length > 0
+					? `Duplicate source_urls: ${check.duplicates.join(", ")} — keep only one.`
+					: null,
+				"Return the corrected JSON array only. No markdown fences.",
+			]
+				.filter(Boolean)
+				.join("\n\n");
+			const retry = captureResponseText(session);
+			await session.prompt(msg);
+			retry.stop();
+			events = await retryValidation(session, retry.getText(), eventArticlesSchema, log);
+		}
+
+		log.info({ count: events.length }, "Phase 3 events finalized");
+
+		// ── Scoped playbook feedback ──
+		log.info("Requesting Phase 3 enrichment feedback");
+		const feedbackCapture = captureResponseText(session);
+		await session.prompt(`Review your session.
+
+You may edit ONLY the enrichment playbooks:
+  - memory/events/bookmyshow/enrichment.md (for BMS issues)
+  - memory/events/district/enrichment.md (for District issues)
+
+Do NOT touch either listing playbook — those are Phase 2a/2b's concern.
+
+Before editing, name the specific events where you observed the issue. If the issue appeared on only one event out of the ${TOP_TICKETED_COUNT} you enriched, treat it as a one-off and do not edit.
+
+${FEEDBACK_EDIT_BAR}`);
+		feedbackCapture.stop();
+		log.info("Phase 3 feedback complete");
+
+		return events;
+	} finally {
+		session.dispose();
+	}
 }
 
 // Phase 3: Ranking
