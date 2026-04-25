@@ -273,7 +273,7 @@ Each object:
   "price": "string from the card, or null"
 }
 
-Return at minimum 10 candidates. Include every card you extracted — the ranking phase will filter.`;
+Return at minimum ${MIN_CANDIDATES_PER_SOURCE} candidates. Include every card you extracted — the ranking phase will filter.`;
 }
 
 function bmsListingUserPrompt(city: string, config: (typeof CITY_CONFIG)[string], today: string): string {
