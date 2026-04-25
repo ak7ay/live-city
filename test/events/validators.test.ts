@@ -47,15 +47,13 @@ describe("findInvalidCandidates", () => {
 		expect(r.countOk).toBe(false);
 	});
 
-	it("flags candidates with both listing_date and image_url null (fully blank)", () => {
+	it("accepts candidates with both listing_date and image_url null (legitimate lazy-load case)", () => {
 		const cands = [
 			makeCandidate({ title: "Good", source_url: "u1" }),
-			makeCandidate({ title: "Bad", source_url: "u2", listing_date: null, image_url: null }),
+			makeCandidate({ title: "Lazy-loaded BMS card", source_url: "u2", listing_date: null, image_url: null }),
 		];
 		const r = findInvalidCandidates(cands, 2);
-		expect(r.invalid).toHaveLength(1);
-		expect(r.invalid[0].source_url).toBe("u2");
-		expect(r.invalid[0].reasons).toContain("both listing_date and image_url are null");
+		expect(r.invalid).toEqual([]);
 	});
 
 	it("accepts candidate when only one of listing_date or image_url is null", () => {

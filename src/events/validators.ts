@@ -14,11 +14,15 @@ export interface CandidateValidationResult {
  * Validate Phase 2a/2b listing output.
  *
  * - `countOk` is true when `candidates.length >= minCount`.
- * - `invalid` lists candidates missing required fields:
+ * - `invalid` lists candidates with structural parse failures:
  *     - empty `title`
  *     - empty `source_url`
- *     - both `listing_date` AND `image_url` null (fully blank card — likely
- *       extracted from a loading state)
+ *
+ * Quality concerns (null listing_date, null image_url) are NOT flagged here.
+ * BMS legitimately lazy-loads images and recurring events have no single
+ * listing_date — the ranker deprioritizes those via the "image presence as
+ * quality signal" rule, and the enrichment phase resolves them via detail
+ * pages.
  *
  * The caller decides what to do on failure (retry in-session, substitute, etc.).
  */
@@ -28,9 +32,6 @@ export function findInvalidCandidates(candidates: ListingCandidate[], minCount: 
 		const reasons: string[] = [];
 		if (!c.title || c.title.trim().length === 0) reasons.push("title is empty");
 		if (!c.source_url || c.source_url.trim().length === 0) reasons.push("source_url is empty");
-		if (c.listing_date === null && c.image_url === null) {
-			reasons.push("both listing_date and image_url are null");
-		}
 		if (reasons.length > 0) {
 			invalid.push({ source_url: c.source_url || "(missing)", reasons });
 		}
