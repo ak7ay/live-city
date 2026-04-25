@@ -71,7 +71,13 @@ Write a file called \`stories-${source}.md\` in the current directory with this 
 
 Do NOT translate. Keep headlines, summaries, and categories in the source language exactly as they appear in the listing. Phase-2 handles translation downstream.
 
-Include EVERY story from the listing. Do not skip any.`;
+Story selection, prioritized by date:
+
+1. Include **every** story dated ${today} (today), regardless of count.
+2. Only if today has **fewer than 15** stories, top up with yesterday's stories until you reach 15 (or run out of yesterday items).
+3. If today already has 15 or more, do NOT include any yesterday items.
+
+Do not include any stories outside the today+yesterday window. Within a date, keep the listing's original order.`;
 }
 
 function extractionUserPrompt(source: string, city: string, today: string): string {
