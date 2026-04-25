@@ -44,12 +44,12 @@ browser-eval '(function() {
     if (lines.length >= 3) {
       events.push({
         title: lines[0],
-        venue: lines[1],
+        venue_line: lines[1],
         category: lines[2],
         price: lines[3] || null,
         date: dateStr,
         url: card.href,
-        image: img && img.src ? img.src : null
+        image_url: img && img.src ? img.src : null
       });
     }
   }
@@ -76,7 +76,7 @@ Note: scroll does not reliably produce a different set of events. In some runs t
 - **Cloudflare blocks curl/fetch** — MUST use browser tools for listing navigation.
 - **PROMOTED events appear first** — paid placements but real events. Include them.
 - **Listing date is partial** — no year, no time. Use the `ie-` ImageKit decode path as shown; null is acceptable.
-- **Many cards render with empty `<img src>`** — a lazy-load placeholder pattern (opacity:0, no data-src, no srcset). Forcing viewport via `scrollIntoView` does not reliably trigger src population. Return `image: null` for those — enrichment.md will recover the image from the detail page `/nmcms/` banner.
+- **Many cards render with empty `<img src>`** — a lazy-load placeholder pattern (opacity:0, no data-src, no srcset). Forcing viewport via `scrollIntoView` does not reliably trigger src population. Return `image_url: null` for those — enrichment.md will recover the image from the detail page `/nmcms/` banner.
 - **"X Apr onwards"** in the listing date means a recurring/multi-slot event. Keep the listing as-is; the detail page (in enrichment.md) resolves the next available date.
 - **Image URLs (when present) contain ImageKit transforms** with the date baked in via `ie-` base64. Use as-is.
 
