@@ -434,6 +434,16 @@ If the user provides a \`previous_events_path\` that references a JSON file of p
 
 News events are already enriched — pass them through without detail visits. Transform the venue string per the ranking transformation rules (split on comma/colon, or use full string as venue_name with null area).
 
+### Carry-forward news events
+
+The user prompt provides a "Previously captured news events" block — these are news events captured in earlier runs that may still be live. Apply these rules:
+
+1. **Drop if stale**: If a carry-forward event's \`event_date\` is before ${today} or null, drop it.
+2. **Dedup against current news**: If a carry-forward event's \`source_url\` matches an entry in this run's news list, drop the carry-forward (current news is authoritative).
+3. **Keep otherwise**: Pass through unchanged with its existing enriched fields. Do not re-enrich.
+
+The number of carry-forward events you keep is variable — there is no minimum. Output may include 0 or more depending on staleness/dedup.
+
 ## BookMyShow enrichment playbook
 
 ${bmsEnrichmentPlaybook}
