@@ -15,10 +15,13 @@ import {
 	type EventArticle,
 	enrichedEventsSchema,
 	eventArticlesSchema,
+	type ListingCandidate,
+	listingCandidatesSchema,
 	type RawEvent,
 	rawEventsSchema,
 } from "./schema.js";
 import { getLiveEventsForCity } from "./store.js";
+import { findInvalidCandidates } from "./validators.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -68,6 +71,34 @@ const CITY_CONFIG: Record<
 	chennai: { bms_slug: "chennai", district_name: "Chennai", district_lat: 13.0827, district_long: 80.2707 },
 	pune: { bms_slug: "pune", district_name: "Pune", district_lat: 18.5204, district_long: 73.8567 },
 };
+
+// ── Universal feedback-edit bar ──────────────────────────────────────
+//
+// Included in every phase's feedback turn. Sets a high bar for what
+// counts as a meaningful edit so playbooks don't bloat run-over-run.
+
+const FEEDBACK_EDIT_BAR = `Only edit the playbook if your observation will DEMONSTRABLY help the next run —
+i.e., something that would otherwise cause failure, waste tokens, or produce
+wrong output if the next run doesn't know about it.
+
+Qualifies:
+  - A selector/URL/endpoint that stopped working (page structure changed)
+  - A quirk observed MULTIPLE times in this session (not a one-off)
+  - A simplification where the playbook's approach was clearly worse than
+    what you did, and you can state why
+
+Does NOT qualify — respond "No playbook changes needed":
+  - One-off SPA timing glitch that resolved on retry
+  - Stylistic rewording of existing instructions
+  - Reminders of things already stated
+  - Speculative "just in case" notes
+  - Minor observations that didn't affect extraction
+
+If editing, prefer delete-or-replace over append. Do not add to "Quirks"
+unless the failure class is clearly not already covered.
+
+Default: if unsure, answer "No playbook changes needed." A terse run is better
+than a bloated playbook.`;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -209,6 +240,48 @@ If the file is empty or missing, scrape all top 10 as usual.
 1. **Step 1 from playbook**: Extract all listings
 2. **Select top 10**: Pick the 10 most promising events based on the selection rules
 3. **Step 2 from playbook**: Visit each selected event's detail page and enrich with description, full date, time, duration, venue details`;
+}
+
+// ── Phase 2a: BMS listing-only ───────────────────────────────────────
+
+function bmsListingSystemPrompt(city: string, listingPlaybook: string): string {
+	return `\
+You are a BookMyShow listing extractor for ${city}.
+
+## Scraping Playbook
+
+${listingPlaybook}
+
+## Steps
+
+1. Navigate to the filtered listing URL exactly as written in Step 1 of the playbook (use the daygroups filter URL).
+2. Execute Step 1 extraction (eval + scroll + re-extract + dedup by URL).
+3. Return ONLY a JSON array of listing candidates — no markdown fences, no detail-page visits.
+
+## Output Format
+
+Each object:
+{
+  "source": "bookmyshow",
+  "title": "string (non-empty)",
+  "source_url": "string (the card's href)",
+  "image_url": "string from card img.src, or null if the card had no image",
+  "listing_date": "string from the listing, or null",
+  "venue_line": "string from the card's venue line, or null",
+  "category": "string from the card, or null",
+  "price": "string from the card, or null"
+}
+
+Return at minimum 10 candidates. Include every card you extracted — the ranking phase will filter.`;
+}
+
+function bmsListingUserPrompt(city: string, config: (typeof CITY_CONFIG)[string], today: string): string {
+	return `\
+Extract the BookMyShow listing for ${city}.
+
+City slug: ${config.bms_slug}
+Today: ${today}
+Target window: this-weekend (today|tomorrow|this-weekend)`;
 }
 
 function districtSystemPrompt({ city, config, today, maxDate, playbook }: SourcePromptParams): string {
@@ -454,6 +527,67 @@ If everything worked, say "No playbook changes needed."`);
 		log.info(`${source.label} feedback phase complete`);
 
 		return events;
+	} finally {
+		session.dispose();
+	}
+}
+
+export async function collectBmsListings(city: string, today: string, cwd: string): Promise<ListingCandidate[]> {
+	const log = logger.child({ module: "events-agent", phase: "2a-bms-listing" });
+	const config = CITY_CONFIG[city];
+	if (!config) throw new Error(`No city config for: ${city}`);
+
+	const listingPlaybook = readFileSync(join(cwd, "memory", "events", "bookmyshow", "listing.md"), "utf-8");
+	log.info("Starting BMS listing-only extraction");
+
+	const session = await createBrowserSession(cwd, bmsListingSystemPrompt(city, listingPlaybook));
+	try {
+		// ── Prompt 1: extract listing ──
+		const capture = captureResponseText(session);
+		await session.prompt(bmsListingUserPrompt(city, config, today));
+		capture.stop();
+
+		let candidates: ListingCandidate[] = await retryValidation(
+			session,
+			capture.getText(),
+			listingCandidatesSchema,
+			log,
+		);
+
+		// ── Post-schema validation (count + required-field check) ──
+		const check = findInvalidCandidates(candidates, 10);
+		if (!check.countOk || check.invalid.length > 0) {
+			log.info({ count: candidates.length, invalid: check.invalid }, "Listing validation failed, asking for fixes");
+			const msg = [
+				check.countOk ? null : `Your output had only ${candidates.length} candidates; we need at least 10.`,
+				check.invalid.length > 0
+					? `The following candidates are malformed:\n${check.invalid
+							.map((i) => `  - ${i.source_url}: ${i.reasons.join(", ")}`)
+							.join("\n")}`
+					: null,
+				"Re-extract the listing (or expand scroll if needed) and return the corrected JSON array only. No markdown fences.",
+			]
+				.filter(Boolean)
+				.join("\n\n");
+			const retry = captureResponseText(session);
+			await session.prompt(msg);
+			retry.stop();
+			candidates = await retryValidation(session, retry.getText(), listingCandidatesSchema, log);
+		}
+
+		log.info({ count: candidates.length }, "BMS listing candidates collected");
+
+		// ── Prompt 2: Scoped playbook feedback ──
+		log.info("Requesting BMS listing playbook feedback");
+		const feedbackCapture = captureResponseText(session);
+		await session.prompt(`Review your session. You may edit ONLY memory/events/bookmyshow/listing.md.
+Do NOT touch memory/events/bookmyshow/enrichment.md — that's Phase 3's concern.
+
+${FEEDBACK_EDIT_BAR}`);
+		feedbackCapture.stop();
+		log.info("BMS listing feedback complete");
+
+		return candidates;
 	} finally {
 		session.dispose();
 	}
