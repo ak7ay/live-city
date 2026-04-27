@@ -41,6 +41,8 @@ export function findInvalidCandidates(candidates: ListingCandidate[], minCount: 
 
 export interface FinalValidationResult {
 	countOk: boolean;
+	ticketedCount: number;
+	countIssues: string[];
 	invalid: InvalidEntry[];
 	duplicates: string[];
 }
@@ -48,16 +50,19 @@ export interface FinalValidationResult {
 /**
  * Validate Phase 3 rank+enrich output.
  *
- * - `countOk` is true when the array contains at least `minTicketed` events.
- *   We don't enforce an upper bound or exact match: the agent may legitimately
- *   drop stale carry-forward news or dedup against today's news, so the final
- *   count is `>= minTicketed` rather than a fixed total.
+ * - `countOk` is true when the ticketed-event count (i.e. source !== "news")
+ *   falls within `[bounds.minTicketed, bounds.maxTicketed]`. News events are
+ *   not counted toward the cap — they pass through with their own carry-forward
+ *   rules and a variable count.
  * - Every event must have non-empty `event_date`, `source`, `source_url`.
  * - Ticketed sources (`bookmyshow`, `district`) must have non-null `image_url`;
  *   news is exempt (news extraction doesn't produce image URLs today).
  * - `duplicates` lists any `source_url` that appears more than once.
  */
-export function findInvalidFinalEvents(events: EventArticle[], minTicketed: number): FinalValidationResult {
+export function findInvalidFinalEvents(
+	events: EventArticle[],
+	bounds: { minTicketed: number; maxTicketed: number },
+): FinalValidationResult {
 	const invalid: InvalidEntry[] = [];
 	const seen = new Map<string, number>();
 	for (const e of events) {
@@ -73,8 +78,18 @@ export function findInvalidFinalEvents(events: EventArticle[], minTicketed: numb
 		seen.set(e.source_url, (seen.get(e.source_url) ?? 0) + 1);
 	}
 	const duplicates = [...seen.entries()].filter(([, n]) => n > 1).map(([url]) => url);
+	const ticketedCount = events.filter((e) => e.source !== "news").length;
+	const countIssues: string[] = [];
+	if (ticketedCount < bounds.minTicketed) {
+		countIssues.push(`ticketed: ${ticketedCount} (need ≥ ${bounds.minTicketed})`);
+	}
+	if (ticketedCount > bounds.maxTicketed) {
+		countIssues.push(`ticketed: ${ticketedCount} (cap is ${bounds.maxTicketed})`);
+	}
 	return {
-		countOk: events.length >= minTicketed,
+		countOk: countIssues.length === 0,
+		ticketedCount,
+		countIssues,
 		invalid,
 		duplicates,
 	};
