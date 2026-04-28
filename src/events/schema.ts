@@ -40,6 +40,23 @@ export const enrichedEventsSchema = z.array(enrichedEventSchema);
 
 export type EnrichedEvent = z.infer<typeof enrichedEventSchema>;
 
+// ── Listing candidates (Phase 2a/2b output; Phase 3 input) ───────────
+
+export const listingCandidateSchema = z.object({
+	source: z.enum(["bookmyshow", "district"]),
+	title: z.string().min(1).max(512),
+	source_url: z.string().min(1),
+	image_url: z.string().nullable(),
+	listing_date: z.string().nullable(),
+	venue_line: z.string().nullable(),
+	category: z.string().nullable(),
+	price: z.string().nullable(),
+});
+
+export const listingCandidatesSchema = z.array(listingCandidateSchema);
+
+export type ListingCandidate = z.infer<typeof listingCandidateSchema>;
+
 // ── Final enriched events (output) ───────────────────────────────────
 
 export const eventArticleSchema = z.object({

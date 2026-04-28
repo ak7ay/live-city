@@ -4,16 +4,17 @@ Orchestration is in `src/events/agent.ts`, not in agent prompts.
 
 ## Phases
 
-1. **Collect news events** — read `~/.cache/news/{city}/{date}/stories-*.md`, extract event mentions (plain session, no browser)
-2. **Per-source collection + enrichment + feedback** — each source gets its own browser session, sequential:
-   - **2a: BookMyShow** — list → select top 10 → enrich from detail pages → playbook feedback → dispose
-   - **2b: District.in** — cookie setup → list → filter by city → select top 10 → enrich from detail pages → playbook feedback → dispose
-3. **Ranking** — merge today's events with previous still-live events from DB, rank, dedup cross-source, output final list (plain session, no browser)
+1. **Phase 1 — News** — read `~/.cache/news/{city}/{date}/stories-*.md`, extract event mentions (plain session, no browser).
+2. **Phase 2a — BMS listing-only** — extract top listing candidates from BookMyShow (browser session, no detail visits, scoped feedback to bookmyshow/listing.md).
+3. **Phase 2b — District listing-only** — extract top listing candidates from District.in (browser session, cookie setup, scoped feedback to district/listing.md).
+4. **Phase 3 — Rank + enrich** — single browser session that ranks all candidates + news + carry-forward, then enriches only the top N ticketed picks by visiting detail pages (reuse-from-cache for previously-enriched URLs; scoped feedback to both enrichment.md files).
 
 ## Source Playbooks
 
-- `playbook-bookmyshow.md` — BMS extraction + enrichment steps
-- `playbook-district.md` — District.in extraction + enrichment steps
+- `bookmyshow/listing.md` — BMS listing extraction
+- `bookmyshow/enrichment.md` — BMS detail-page enrichment (incl. /nmcms/ image fallback)
+- `district/listing.md` — District.in listing extraction
+- `district/enrichment.md` — District.in detail-page enrichment
 
 Each playbook is used entirely within its source session. Playbook feedback (self-correction) happens in the same session that used the playbook.
 
