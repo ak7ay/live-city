@@ -62,6 +62,10 @@ sleep 3
 
 Note: scroll does not reliably produce a different set of events. In some runs the second extraction is identical to the first — that's fine, just deduplicate and proceed. The listing order can also change between extractions, and individual events may appear or disappear (the listing is dynamic). Always union both extractions by URL before selecting candidates.
 
+**If you still haven't found enough in-window events**, re-navigate the listing page fresh (not just scroll again) and repeat the extract+scroll cycle. A fresh page load often rotates in different events that weren't served in the initial load — this can surface 5–10 new candidates.
+
+**If the scroll re-extract returns `[]`**, the BMS SPA has auto-routed the listing page away (same SPA routing that affects detail pages also affects the listing). Don't retry the scroll — just proceed with the first extraction, or re-navigate fresh.
+
 Events without a `date` (null) are further down the ranking. **Do not skip them outright** — their detail pages often have a valid date. Prefer dated events for ranking, but enrich null-date events if needed to fill your top 10 and check the detail page before discarding.
 
 ---
@@ -151,9 +155,10 @@ Examples:
 - **Recurring/multi-slot events show far-future dates on the detail page** — e.g. a weekly club night listed as "Sun, 12 Apr onwards" may show "Sun 27 Dec 2026" on the detail page (the last scheduled slot). This makes them rank lower by proximity. Use the detail page date as-is per the authoritative rule, but be aware these events may be deprioritised in ranking.
 - "PROMOTED" events appear first — they're paid placements but real events.
 - Date in listing is partial (no year, no time). Detail page has full date + time.
-- **Detail page date is authoritative** — listing dates frequently diverge from the detail page for any recurring event (club nights, DJ nights, workshop series, comedy tours, PROMOTED cards). A listing date reflects the next slot for any city; the Bengaluru detail page may be weeks later. Always prefer the detail page date.
+- **Detail page date is authoritative** — listing dates frequently diverge from the detail page for any recurring event (club nights, DJ nights, workshop series, comedy tours, PROMOTED cards). A listing date reflects the next slot for any city; the city-specific detail page may be weeks later. Always prefer the detail page date.
 - **Skip detail visits for clearly out-of-window listing dates** — if the listing shows a hard date (no "onwards", not null) that is beyond your cutoff, skip the detail visit entirely. Only visit detail pages for in-window dates, "onwards" events, and null-date events.
 - **Events with date range blocks** (tours, workshop series, recurring multi-slot events) show `"Sun 12 Apr 2026 - Sat 30 May 2026"` instead of `date\ntime\nduration` on separate lines. The `info` regex returns `null` for these; the detail script captures `range_start` (start of the range) as a fallback. Use `range_start` if set, otherwise fall back to the listing date. Leave `time`/`duration` as null. This is very common for comedy tours and multi-show runs, as well as Arts & Crafts workshops.
+- **Ongoing runs where range_start precedes the window** — e.g. a circus or exhibition with `range_start: "Fri 24 Apr 2026"` but listing shows "Sun, 26 Apr onwards". The event is actively running during the window. Use the listing "onwards" date as event_date (e.g. "Sun, 26 Apr 2026") rather than the pre-window `range_start`, which would fail the HARD CUTOFF check and cause you to wrongly drop an in-progress event.
 - **Multi-batch programme events** (e.g. science workshops, skill courses with multiple cohorts) embed their dates as prose inside the description (e.g. `"I Batch: April 28 to May 02, 2026; Time: 10:30am to 12:30 pm"`) rather than in the structured block. The `info` regex returns `null`. Fallback: use the listing date; parse time from the description text if a specific batch time is visible there.
 - Some detail pages have `description` empty — use the first paragraph of visible text below the title.
 - **Description bleed**: Short descriptions may have no "Read More" sentinel and run into boilerplate sections like "Artists", "Terms & Conditions", or "You May Also Like". The updated extraction code above uses all of these as end sentinels.
@@ -168,3 +173,4 @@ Examples:
 - **Listing venue may have no colon separator** — e.g. `"Bhartiya Mall Of Bengaluru"` has no `: `. In this case `venue_name` = the full string and `venue_area` = null.
 - **Venue colon without space** — some venues use `:` with no trailing space (e.g. `"Art Of Living Yoga And Meditation Center:Bengaluru"`). The LAST `: ` split won't match; fall back to splitting on the last bare `:` instead.
 - **BMS event URL may redirect to an external partner site** — some events (e.g. Swiftchella) open on `district.in` or another external domain instead of BMS. Detect via `window.location.href` not containing `bookmyshow.com` after nav. Treat the event as unusable and skip it.
+- **`?webview=true` listing cards** — Some events appear as compact cards with only the title in `innerText` (no venue/category/price lines), causing them to be filtered out by the `lines.length >= 3` check. Their listing URLs have `?webview=true` appended. Strip the query parameter when navigating to their detail pages — detail pages work normally. Price and category must be extracted from the detail page text for these events.

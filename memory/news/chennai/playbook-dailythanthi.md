@@ -75,6 +75,34 @@ for item in items:
 "
 ```
 
+**RSS miss — direct page fallback:** The RSS feed has a rolling window; an article selected during listing may no longer be present when re-fetched for body extraction (the command produces no output). If the RSS fetch returns nothing, fall back to the article page directly:
+
+```
+curl -sL --compressed -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+  "{article_url}" -o /tmp/thanthi_article.html
+python3 << 'PYEOF'
+import re, html as htmlmod
+with open('/tmp/thanthi_article.html', 'r', encoding='utf-8', errors='ignore') as f:
+    html = f.read()
+# Thumbnail — og:image has HTML-encoded ampersands; unescape before use
+og_img = re.search(r'property="og:image"\s+content="([^"]+)"', html)
+if not og_img:
+    og_img = re.search(r'content="([^"]+)"\s+property="og:image"', html)
+print('THUMB:', htmlmod.unescape(og_img.group(1)) if og_img else '')
+# Body — <p> tags carry all article paragraphs cleanly
+paras = re.findall(r'<p[^>]*>(.*?)</p>', html, re.DOTALL)
+for p in paras:
+    clean = re.sub(r'<[^>]+>', ' ', p)
+    clean = re.sub(r'\s+', ' ', htmlmod.unescape(clean)).strip()
+    if len(clean) > 40:
+        print(clean)
+PYEOF
+```
+
+Notes on the page fallback:
+- `<p>` extraction yields all article paragraphs with no noise; filter `len > 40` drops nav/footer fragments.
+- The `og:image` URL contains HTML-encoded ampersands (`&amp;`) — always run `html.unescape()` on it before storing as `thumbnail_url`.
+
 **Fields:**
 - `<title>` — Tamil headline (CDATA-wrapped)
 - `<link>` — canonical article URL
@@ -94,7 +122,8 @@ The feed is Tamil-Nadu-wide. No Chennai-only feed exists (`/rssfeed/chennai` →
 - **Webstories** (URL contains `/ampstories/`) carry only stock credit lines (~700 chars, repeated `credit: freepik` pattern) — filter is already in the listing snippet, do not remove.
 - HTML entities in body (`&amp;quot;`, `&apos;`) — a single `html.unescape()` pass handles these; unlike Polimer, Thanthi bodies are not over-escaped.
 - Bylines sometimes appear at body start as `சென்னை,` or `பாமக தலைவர்...` — typical dateline; keep.
-- Feed has ~30–44 items pre-filter; the today+yesterday filter typically leaves ~15–35.
+- Stray `%` characters can appear mid-string in Tamil number+unit phrases (e.g. `19% லட்சம்`) — this is feed corruption of the `½` Unicode character, not a literal percent. Render as `½` (i.e. `19½ லட்சம்` → "19.5 lakh"). Cross-check against the `<title>` which often retains the correct `½`.
+- Feed has ~30–60 items pre-filter; the today+yesterday filter typically leaves ~15–35, but can reach 48+ on high-volume news days (e.g. election day).
 - **SIGPIPE truncation risk:** Do NOT pipe the listing through `| head -N` — head quitting sends SIGPIPE and causes python to terminate early, silently truncating the last story. Redirect directly to a file (`> /tmp/file.txt`) and grep/head the file separately if you need to slice it.
 - **Date filter:** the listing snippet drops anything not dated today or yesterday (IST). If you suspect the filter is over-trimming, run the snippet with `today = datetime.now(IST).date() + timedelta(days=1)` swapped in to see what's just outside the window.
 

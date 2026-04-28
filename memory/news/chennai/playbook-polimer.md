@@ -63,10 +63,9 @@ body  = ''
 thumb = ''
 for s in schemas:
     try:
-        # NewsArticle blocks sometimes embed raw newlines inside JSON strings,
-        # causing json.loads() to fail with 'Invalid control character'.
-        # Strip bare control chars (except \t\n\r) before parsing.
-        s_clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+        # ArticleBody strings embed literal \x0a (LF) which is invalid inside JSON strings.
+        # Strip ALL bare control chars 0x00-0x1f — structural whitespace is not required.
+        s_clean = re.sub(r'[\x00-\x1f]', '', s)
         data = json.loads(s_clean)
     except Exception:
         continue
@@ -76,7 +75,9 @@ for s in schemas:
             body = body or d.get('articleBody', '')
             img = d.get('image')
             if not thumb:
-                if isinstance(img, dict):
+                if isinstance(img, list):
+                    thumb = img[0] if img else ''
+                elif isinstance(img, dict):
                     thumb = img.get('url', '')
                 elif isinstance(img, str):
                     thumb = img
@@ -104,27 +105,29 @@ print('THUMB:', thumb)
 - `<pubDate>` — RFC822 IST (e.g. `Fri, 17 Apr 2026 20:45:11 +0530`) — the listing snippet normalizes this to IST `YYYY-MM-DD` and emits it as `DATE:`
 - `<category>` — Tamil tags: `முகப்பு` (home), `தமிழ்நாடு`, `அரசியல்`, `மாவட்டம்`, city names, etc.
 - `<media:content url="...">` / `<enclosure url="...">` — Publive CDN thumbnail (`img-cdn.publive.online/...`)
-- Article page `NewsArticle.articleBody` — Tamil body; full articles ~3000–4000 chars, `/latestnews/` stubs can be as short as ~200 chars (genuine, not an extraction failure)
+- Article page `NewsArticle.articleBody` — Tamil body; full articles ~3000–4000 chars, stubs can be as short as ~200 chars in any section (not just `/latestnews/`) — genuine content, not an extraction failure
 
 ## Chennai relevance
 
 Polimer tags some items with the Tamil city name `சென்னை` in the `<category>` list (e.g. items under `/districtnews/...-in-chennai-...`). Filter at selection time:
 - Category list contains `சென்னை` (most reliable)
 - URL slug contains `chennai`
-- Body contains `சென்னை`
+- RSS `<description>` contains `சென்னை` — in practice this is the most common signal; category and URL slug are often absent even for genuine Chennai stories. No need to fetch the full article body during listing.
 
 `/tag/chennai/rss` exists but returns 0 items — do not use.
+
+Some genuine Chennai stories use location-specific names instead of "சென்னை" and will be missed by all three signals. Observed: ECR (East Coast Road) stories use "கிழக்கு கடற்கரை சாலை" with generic categories (`முகப்பு`, `BIG STORIES`) and no `chennai` in the URL slug. However, some ECR stories do include "சென்னை" later in the full RSS description (past the visible 200-char truncation) and will be caught by the description signal. The gap applies only when the full description omits "சென்னை" entirely — accept this as a known gap, adding more signals risks false positives.
 
 ## Content quirks
 
 - **`articleBody` is over-escaped** with varying depth. Use the fixed-point `html.unescape()` loop in the snippet above — a one-shot or two-shot unescape leaves visible `&quot;` in parts of the body.
 - Category tags can be purely Tamil (`முகப்பு`, `சற்றுமுன்`) and need translation at render time.
-- Sports (IPL / cricket) is **not** published to the main RSS feed — `/sportsnews` section exists but is effectively dormant (article IDs ~288k behind current RSS IDs). Do not expect cricket cross-source matches from Polimer.
+- Sports (IPL / cricket) **can** appear in the main RSS feed — observed a `/sportsnews/` story (Punjab Kings, ID 11765958) at position 1 in the feed with a current-range article ID. The `/sportsnews` section may have been dormant at some point but is now active. Cricket stories will appear and can be matched cross-source.
 - Some entries are in English (`TRENDING`, `LATEST NEWS`) mixed into the Tamil category tree — keep as-is, the ranking prompt handles this.
 
 ## Known quirks
 
-- Feed returns ~50 items pre-filter; today+yesterday window typically leaves ~30–40.
+- Feed returns ~50 items pre-filter; today+yesterday window typically leaves ~30–40. When run early in the IST day (before today's stories are published), the window may yield only ~15–20 items, all from yesterday — normal, not a feed issue.
 - **Date filter:** the listing snippet drops anything not dated today or yesterday (IST).
 - Thumbnails are consistently present on every item.
 - Article pages are ~230KB — piping directly into python avoids double-buffering the payload.

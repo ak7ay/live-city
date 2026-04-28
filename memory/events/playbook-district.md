@@ -22,11 +22,10 @@ District.in uses a cookie to determine the city. You must set it before navigati
 
 ## Step 1: Set city cookie and navigate
 
-First navigate to district.in (any page) to set the cookie:
+First navigate to district.in (any page) to set the cookie domain context:
 
 ```bash
 browser-nav "https://www.district.in/events/"
-sleep 2
 ```
 
 Then set the location cookie on **both** domains — `www.district.in` often has a stale Gurugram cookie that overrides `.district.in` if you only set one:
@@ -52,10 +51,9 @@ Then navigate to the events page **without `--new`** — opening in a new tab no
 
 ```bash
 browser-nav "https://www.district.in/events/"
-sleep 3
 ```
 
-Verify the URL is still `https://www.district.in/events/` before proceeding. If it redirected, navigate again and re-check.
+**Do not sleep after this navigation.** District.in auto-redirects away from the listing page after a few seconds. Chain navigation and extraction in a single `&&` bash command (see Step 2) — any sleep between them will trigger the redirect.
 
 Do **not** trust the top-left header alone for city verification; it can stay on Gurugram even when the target city's listing is loaded. Confirm by checking the first extracted venues.
 
@@ -63,12 +61,12 @@ Do **not** trust the top-left header alone for city verification; it can stay on
 
 ## Step 2: Extract listing
 
-**Do not scroll.** Event cards load in the DOM without scrolling, and any scroll (including `scrollBy`, even with pointer events disabled) consistently navigates away to an event detail page. Extract immediately after the `sleep 3` in Step 1.
+**Do not scroll.** Event cards load in the DOM without scrolling, and any scroll (including `scrollBy`, even with pointer events disabled) consistently navigates away to an event detail page.
 
-Extract all event cards:
+Chain nav and extraction in one bash command — no sleep between them:
 
 ```bash
-browser-eval '(function() {
+browser-nav "https://www.district.in/events/" && browser-eval '(function() {
   var links = document.querySelectorAll("a[href*=\"/events/\"][href*=\"buy-tickets\"]");
   var events = [];
   for (var i = 0; i < links.length; i++) {
@@ -176,6 +174,7 @@ The listing provides `datetime` as a single string. Parse it into event_date and
 | `"Daily, Multiple slots"` | `"Daily"` | `null` |
 | `"Daily, 12:00 PM onwards"` | `"Daily"` | `"12:00 PM"` |
 | `"Every Sun & Sat, 7:00 PM to 10:30 PM"` | `"Every Sun & Sat"` | `"7:00 PM"` |
+| `"Every Sun, Fri & Sat, Multiple slots"` | `"Every Sun, Fri & Sat"` | `null` |
 | `"Fri, 10 Apr – Sun, 19 Apr, 7:00 PM"` | `"Fri, 10 Apr – Sun, 19 Apr 2026"` | `"7:00 PM"` |
 | `"Mon, 13 Apr – Mon, 20 Apr, Multiple slots"` | `"Mon, 13 Apr – Mon, 20 Apr 2026"` | `null` |
 | `"Sat, 25 Apr onwards, Multiple Dates"` | `"Sat, 25 Apr 2026"` | `null` |
@@ -197,6 +196,7 @@ Add the current year if not present. The detail page may have a more specific da
 - Event cards are present in the DOM without scrolling — typically 20+ cards load on page render. Do not scroll.
 - **Any scroll navigates away**: `scrollTo`, `scrollBy`, and even scroll with all link pointer-events disabled all redirect to an event detail page. This is not recoverable mid-scroll; just avoid it entirely.
 - Opening the events page with `--new` causes an immediate redirect to a stale event detail page before any interaction. Always navigate without `--new` for the listing page.
+- **The listing page auto-redirects to a BookMyShow event detail page after a few seconds.** Any `sleep` between `browser-nav` and `browser-eval` will trigger this. Chain them with `&&` (no sleep) as shown in Step 2.
 - Detail pages occasionally redirect — either back to the listing or to a completely different event page. Always verify the returned `url` field matches the requested URL slug. The `sleep 4` after `browser-nav` is already sufficient; no extra sleep needed before the eval. If it doesn't match, retry once. If it still redirects, skip and substitute with the next candidate. A non-empty description is NOT a reliable redirect check — the wrong event's description will populate it silently. Redirects tend to be cross-linked between specific events (not just to the listing), so the redirect target's data may still be usable if that event is in your target list.
-- Recurring events with old URL slugs (e.g. `jan13-2024`, `aug31-2024`) redirect on both attempts consistently — skip them proactively rather than burning retries. Prefer candidate substitutes with recent slugs (current year).
+- Recurring events with old URL slugs (e.g. `jan13-2024`, `aug31-2024`, `may10-2025`) redirect on both attempts consistently — skip them proactively rather than burning retries. Prefer candidate substitutes with recent slugs (current year).
 - Venue city suffix duplication may be same-spelling (`"Bangalore, Bangalore"`) or mixed (`"Bangalore, Bengaluru"`) — the trailing-city trim logic in Step 3 handles both.
