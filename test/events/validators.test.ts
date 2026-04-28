@@ -75,36 +75,56 @@ describe("findInvalidCandidates", () => {
 });
 
 describe("findInvalidFinalEvents", () => {
-	it("accepts valid events when count >= minTicketed", () => {
+	it("accepts valid events when ticketed count is within bounds", () => {
 		const events = [makeEventArticle({ rank: 1 }), makeEventArticle({ source_url: "u2", rank: 2 })];
-		expect(findInvalidFinalEvents(events, 2)).toEqual({ countOk: true, invalid: [], duplicates: [] });
+		expect(findInvalidFinalEvents(events, { minTicketed: 2, maxTicketed: 10 })).toEqual({
+			countOk: true,
+			ticketedCount: 2,
+			countIssues: [],
+			invalid: [],
+			duplicates: [],
+		});
 	});
 
-	it("accepts when count exceeds minTicketed (extra news/carry-forward allowed)", () => {
+	it("does not count news events toward the ticketed cap", () => {
 		const events = [
 			makeEventArticle({ rank: 1 }),
 			makeEventArticle({ source_url: "u2", rank: 2 }),
 			makeEventArticle({ source: "news", source_url: "u3", image_url: null, rank: 3 }),
 		];
-		expect(findInvalidFinalEvents(events, 2).countOk).toBe(true);
+		const r = findInvalidFinalEvents(events, { minTicketed: 2, maxTicketed: 10 });
+		expect(r.countOk).toBe(true);
+		expect(r.ticketedCount).toBe(2);
 	});
 
-	it("flags count below minTicketed", () => {
-		expect(findInvalidFinalEvents([makeEventArticle()], 2).countOk).toBe(false);
+	it("flags ticketed count below the floor", () => {
+		const r = findInvalidFinalEvents([makeEventArticle()], { minTicketed: 2, maxTicketed: 10 });
+		expect(r.countOk).toBe(false);
+		expect(r.countIssues[0]).toContain("need ≥ 2");
+	});
+
+	it("flags ticketed count above the ceiling", () => {
+		const events = Array.from({ length: 11 }, (_, i) => makeEventArticle({ source_url: `u${i}`, rank: i + 1 }));
+		const r = findInvalidFinalEvents(events, { minTicketed: 6, maxTicketed: 10 });
+		expect(r.countOk).toBe(false);
+		expect(r.countIssues[0]).toContain("cap is 10");
 	});
 
 	it("flags empty event_date", () => {
-		const r = findInvalidFinalEvents([makeEventArticle({ event_date: "" })], 1);
+		const r = findInvalidFinalEvents([makeEventArticle({ event_date: "" })], { minTicketed: 1, maxTicketed: 10 });
 		expect(r.invalid[0].reasons).toContain("event_date is empty");
 	});
 
 	it("flags ticketed event with null image_url", () => {
-		const r = findInvalidFinalEvents([makeEventArticle({ image_url: null })], 1);
+		const r = findInvalidFinalEvents([makeEventArticle({ image_url: null })], { minTicketed: 1, maxTicketed: 10 });
 		expect(r.invalid[0].reasons).toContain("image_url is null (required for ticketed sources)");
 	});
 
 	it("exempts news events from image_url requirement", () => {
-		const r = findInvalidFinalEvents([makeEventArticle({ source: "news", image_url: null })], 1);
+		const r = findInvalidFinalEvents([makeEventArticle({ source: "news", image_url: null })], {
+			minTicketed: 0,
+			maxTicketed: 10,
+		});
 		expect(r.invalid).toEqual([]);
 	});
 
@@ -113,7 +133,7 @@ describe("findInvalidFinalEvents", () => {
 			makeEventArticle({ source_url: "dup", rank: 1 }),
 			makeEventArticle({ source_url: "dup", rank: 2 }),
 		];
-		const r = findInvalidFinalEvents(events, 2);
+		const r = findInvalidFinalEvents(events, { minTicketed: 2, maxTicketed: 10 });
 		expect(r.duplicates).toContain("dup");
 	});
 });

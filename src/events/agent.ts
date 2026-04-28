@@ -17,9 +17,10 @@ import { findInvalidCandidates, findInvalidFinalEvents } from "./validators.js";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const TOP_TICKETED_COUNT = 10;
+const MIN_TICKETED_COUNT = 6;
+const MAX_TICKETED_COUNT = 10;
 const EVENT_HORIZON_DAYS = 7;
-const MIN_CANDIDATES_PER_SOURCE = 10; // symmetric with TOP_TICKETED_COUNT
+const MIN_CANDIDATES_PER_SOURCE = 10;
 
 const CITY_CONFIG: Record<
 	string,
@@ -227,13 +228,13 @@ function rankAndEnrichSystemPrompt(
 	return `\
 You are the events editor for ${city}.
 
-Your job: rank a pool of listing candidates plus news events to a final top ${TOP_TICKETED_COUNT} ticketed events (plus all news events passed through), then enrich each ticketed pick by visiting its detail page.
+Your job: rank a pool of listing candidates plus news events. Pick ${MIN_TICKETED_COUNT}–${MAX_TICKETED_COUNT} ticketed events total (across BookMyShow and District combined), leaning toward fewer when quality drops off — don't pad the list with weak picks just to hit ${MAX_TICKETED_COUNT}. Pass all news events through. Then enrich each ticketed pick by visiting its detail page.
 
 ## Ranking Rules
 
 1. **HARD CUTOFF**: Only include events with event_date between ${today} and ${maxDate} (7-day window).
 2. **Time proximity** — events happening sooner rank higher (today is ${today}).
-3. **Significance** — big concerts, major sports, large festivals > small bar gigs.
+3. **Audience breadth (soft preference)** — lean toward events with wider appeal (festivals, major concerts, family/cultural programs, large public events) over more niche or intimate picks (small bar gigs, club nights). This is a soft tilt, not exclusion — a standout small-venue event still belongs in the mix when the alternatives are weak.
 4. **Cross-source boost** — if the same event appears on both BMS and District, pick one (prefer the one with more listing fields populated) and treat it as higher signal.
 5. **Image presence as a quality signal** — BMS lists low-priority events with null listing images; treat them as lower confidence.
 6. **Category diversity** — avoid clustering same-category picks.
@@ -241,7 +242,7 @@ Your job: rank a pool of listing candidates plus news events to a final top ${TO
 
 ## Enrichment Rules
 
-After selecting the top ${TOP_TICKETED_COUNT} ticketed events, visit each one's detail page to enrich fields. The enrichment playbooks below (one per source) describe exactly how.
+After selecting your ticketed picks (${MIN_TICKETED_COUNT}–${MAX_TICKETED_COUNT} total), visit each one's detail page to enrich fields. The enrichment playbooks below (one per source) describe exactly how.
 
 ### Reuse from previous run
 
@@ -275,7 +276,7 @@ ${districtEnrichmentPlaybook}
 
 ## Output Format
 
-Return ONLY a JSON array (no markdown fences). One object per final event. Must have exactly ${TOP_TICKETED_COUNT} ticketed entries + all news events:
+Return ONLY a JSON array (no markdown fences). One object per final event. The array must contain between ${MIN_TICKETED_COUNT} and ${MAX_TICKETED_COUNT} ticketed entries (any mix of BMS / District) plus all news events:
 
 {
   "title": "string",
@@ -381,21 +382,29 @@ async function rankAndEnrich(
 		let events: EventArticle[] = await retryValidation(session, capture.getText(), eventArticlesSchema, log);
 
 		// ── Post-schema validation ──
-		const check = findInvalidFinalEvents(events, TOP_TICKETED_COUNT);
+		const check = findInvalidFinalEvents(events, {
+			minTicketed: MIN_TICKETED_COUNT,
+			maxTicketed: MAX_TICKETED_COUNT,
+		});
 		if (!check.countOk || check.invalid.length > 0 || check.duplicates.length > 0) {
 			log.info(
 				{
 					count: events.length,
-					minTicketed: TOP_TICKETED_COUNT,
+					ticketedCount: check.ticketedCount,
+					bounds: { min: MIN_TICKETED_COUNT, max: MAX_TICKETED_COUNT },
+					countIssues: check.countIssues,
 					invalid: check.invalid,
 					duplicates: check.duplicates,
 				},
 				"Phase 3 validation failed, asking for fixes",
 			);
+			const countMsg = check.countOk
+				? null
+				: check.ticketedCount < MIN_TICKETED_COUNT
+					? `Got only ${check.ticketedCount} ticketed events; need at least ${MIN_TICKETED_COUNT}.`
+					: `Got ${check.ticketedCount} ticketed events; cap is ${MAX_TICKETED_COUNT} — drop the weakest.`;
 			const msg = [
-				check.countOk
-					? null
-					: `Got only ${events.length} events; need at least ${TOP_TICKETED_COUNT} ticketed picks.`,
+				countMsg,
 				check.invalid.length > 0
 					? `Malformed events:\n${check.invalid
 							.map((i) => `  - ${i.source_url}: ${i.reasons.join(", ")}`)
@@ -416,7 +425,8 @@ async function rankAndEnrich(
 			events = await retryValidation(session, retry.getText(), eventArticlesSchema, log);
 		}
 
-		log.info({ count: events.length }, "Phase 3 events finalized");
+		const ticketedCount = events.filter((e) => e.source !== "news").length;
+		log.info({ count: events.length, ticketedCount }, "Phase 3 events finalized");
 
 		// ── Scoped playbook feedback ──
 		log.info("Requesting Phase 3 enrichment feedback");
@@ -429,7 +439,7 @@ You may edit ONLY the enrichment playbooks:
 
 Do NOT touch either listing playbook — those are Phase 2a/2b's concern.
 
-Before editing, name the specific events where you observed the issue. If the issue appeared on only one event out of the ${TOP_TICKETED_COUNT} you enriched, treat it as a one-off and do not edit.
+Before editing, name the specific events where you observed the issue. If the issue appeared on only one event out of the ${ticketedCount} you enriched, treat it as a one-off and do not edit.
 
 ${FEEDBACK_EDIT_BAR}`);
 		feedbackCapture.stop();
